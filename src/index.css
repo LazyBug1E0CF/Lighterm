@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+:root {
+  --bg-app: rgba(26, 27, 38, 0.96);
+  --bg-surface: rgba(36, 40, 59, 0.94);
+  --bg-elevated: rgba(47, 51, 77, 0.96);
+  --border-subtle: rgba(122, 162, 247, 0.16);
+  --text-primary: #c0caf5;
+  --text-muted: #787c99;
+  --accent: #7aa2f7;
+  --danger: #f7768e;
+  --success: #9ece6a;
+  --warning: #e0af68;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lighterm-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.lighterm-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lighterm-scroll::-webkit-scrollbar-thumb {
+  background: rgba(140, 150, 190, 0.25);
+  border-radius: 3px;
+}
+
+.lighterm-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 150, 190, 0.45);
+}
+
+.xterm {
+  height: 100%;
+  padding: 6px 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(140, 150, 190, 0.28);
+  border-radius: 4px;
+}

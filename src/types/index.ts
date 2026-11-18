@@ -1,0 +1,202 @@
+import type { ITheme } from '@xterm/xterm';
+
+export type SessionKind = 'local' | 'ssh';
+export type SessionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+export interface SessionInfo {
+  id: string;
+  kind: SessionKind;
+  title: string;
+  hostId?: string | null;
+  cols: number;
+  rows: number;
+  status: SessionStatus;
+  createdAt: number;
+}
+
+export type AuthMethod =
+  | { type: 'password'; password?: string | null }
+  | {
+      type: 'privateKey';
+      keyPath?: string | null;
+      privateKeyPem?: string | null;
+      passphrase?: string | null;
+    };
+
+export interface HostConfig {
+  id: string;
+  name: string;
+  group: string;
+  host: string;
+  port: number;
+  username: string;
+  auth: AuthMethod;
+  defaultPath?: string | null;
+  startupCommand?: string | null;
+  color?: string | null;
+  updatedAt: number;
+}
+
+export interface SftpEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  isSymlink: boolean;
+  size: number;
+  permissions: string;
+  mode: number;
+  modifiedAt?: number | null;
+}
+
+export interface SftpTransferProgress {
+  transferId: string;
+  hostId: string;
+  fileName: string;
+  direction: 'upload' | 'download' | string;
+  bytesTransferred: number;
+  totalBytes: number;
+  done: boolean;
+  error?: string | null;
+}
+
+export interface Snippet {
+  id: string;
+  title: string;
+  command: string;
+  category: string;
+  description?: string | null;
+  autoExecute: boolean;
+  updatedAt: number;
+}
+
+export interface HistoryEntry {
+  id: string;
+  command: string;
+  sessionKind: SessionKind;
+  hostLabel: string;
+  timestamp: number;
+  count: number;
+}
+
+export interface ShortcutMap {
+  newLocalTab: string;
+  newHostModal: string;
+  splitHorizontal: string;
+  splitVertical: string;
+  closePane: string;
+  findInTerminal: string;
+  commandPalette: string;
+  toggleSidebar: string;
+  toggleSftp: string;
+  toggleMonitor: string;
+  openSettings: string;
+  nextTab: string;
+  prevTab: string;
+}
+
+export interface AppSettings {
+  themeId: string;
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  cursorStyle: 'block' | 'underline' | 'bar' | string;
+  cursorBlink: boolean;
+  scrollback: number;
+  backgroundOpacity: number;
+  copyOnSelect: boolean;
+  shortcuts: ShortcutMap;
+}
+
+export interface ConnectionTestResult {
+  success: boolean;
+  latencyMs: number;
+  message: string;
+}
+
+export interface DiskStat {
+  name: string;
+  mountPoint: string;
+  fsType: string;
+  totalBytes: number;
+  usedBytes: number;
+  usagePercent: number;
+}
+
+export interface ProcessStat {
+  pid: number;
+  name: string;
+  cpuPercent: number;
+  memoryBytes: number;
+}
+
+export interface SystemStats {
+  source: SessionKind;
+  hostname: string;
+  osName: string;
+  kernelVersion: string;
+  arch: string;
+  uptimeSecs: number;
+  loadAvg: [number, number, number];
+  cpuUsagePercent: number;
+  cpuCores: number;
+  memTotalBytes: number;
+  memUsedBytes: number;
+  swapTotalBytes: number;
+  swapUsedBytes: number;
+  netRxBytesPerSec: number;
+  netTxBytesPerSec: number;
+  netTotalRxBytes: number;
+  netTotalTxBytes: number;
+  disks: DiskStat[];
+  topProcesses: ProcessStat[];
+  sampledAt: number;
+}
+
+export type SplitDirection = 'horizontal' | 'vertical';
+
+export interface PaneLeaf {
+  type: 'leaf';
+  id: string;
+  sessionId: string;
+  kind: SessionKind;
+  hostId?: string;
+  hostConfig?: HostConfig;
+  title: string;
+}
+
+export interface PaneSplit {
+  type: 'split';
+  id: string;
+  direction: SplitDirection;
+  ratio: number;
+  first: PaneNode;
+  second: PaneNode;
+}
+
+export type PaneNode = PaneLeaf | PaneSplit;
+
+export interface TerminalTab {
+  id: string;
+  title: string;
+  root: PaneNode;
+  activePaneId: string;
+}
+
+export interface ThemePreset {
+  id: string;
+  name: string;
+  isDark: boolean;
+  ui: {
+    bgApp: string;
+    bgSurface: string;
+    bgElevated: string;
+    borderSubtle: string;
+    textPrimary: string;
+    textMuted: string;
+    accent: string;
+    danger: string;
+    success: string;
+    warning: string;
+  };
+  xterm: ITheme;
+}
