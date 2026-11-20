@@ -84,6 +84,13 @@ function clampDrawerWidth(width: number): number {
 let workspaceSeq = 1;
 let lastAutoCollapseAt: Record<DrawerSide, number> = { left: 0, right: 0 };
 
+type BeforeWorkspaceCloseListener = (
+  workspace: WorkspaceState,
+  viewports: Record<string, ViewportInstance>,
+) => void;
+
+const beforeWorkspaceCloseListeners = new Set<BeforeWorkspaceCloseListener>();
+
 function createInitialLeftDrawer(): DrawerState {
   const prefs = readDrawerPrefs();
   return {
@@ -106,10 +113,15 @@ function createInitialRightDrawer(): DrawerState {
   };
 }
 
-function createEmptyWorkspace(name = 'Workspace 1', id = 'ws-1'): WorkspaceState {
+function createEmptyWorkspace(
+  name = 'Workspace 1',
+  id = 'ws-1',
+  savedWorkspaceId: string | null = null,
+): WorkspaceState {
   return {
     id,
     name,
+    savedWorkspaceId,
     dockRoot: null,
     floating: [],
     activeViewportId: null,
@@ -460,18 +472,130 @@ export class LayoutService {
     }));
   }
 
+  onBeforeWorkspaceClose(listener: BeforeWorkspaceCloseListener): () => void {
+    beforeWorkspaceCloseListeners.add(listener);
+    return () => {
+      beforeWorkspaceCloseListeners.delete(listener);
+    };
+  }
+
+  setWorkspaceSavedId(workspaceId: string, savedWorkspaceId: string | null): void {
+    useLayoutStore.setState((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.id === workspaceId ? { ...ws, savedWorkspaceId } : ws,
+      ),
+    }));
+  }
+
+  hydrateWorkspaceLayout(
+    workspaceId: string,
+    payload: {
+      name: string;
+      savedWorkspaceId?: string | null;
+      viewports: ViewportInstance[];
+      dockRoot: DockNode | null;
+      floating: FloatingViewportItem[];
+      activeViewportId: string | null;
+      maximizedViewportId: string | null;
+      layoutPreset: QuickShellLayoutPreset | null;
+    },
+    select = true,
+  ): WorkspaceState {
+    const state = useLayoutStore.getState();
+    const cleanName = payload.name.trim() || 'Workspace';
+    const nextViewports = { ...state.viewports };
+    for (const vp of payload.viewports) {
+      nextViewports[vp.id] = vp;
+    }
+
+    const hydrated: WorkspaceState = {
+      id: workspaceId,
+      name: cleanName,
+      savedWorkspaceId: payload.savedWorkspaceId ?? null,
+      dockRoot: payload.dockRoot,
+      floating: payload.floating,
+      activeViewportId: payload.activeViewportId,
+      maximizedViewportId: payload.maximizedViewportId,
+      layoutPreset: payload.layoutPreset ?? null,
+    };
+
+    const exists = state.workspaces.some((ws) => ws.id === workspaceId);
+    const workspaces = exists
+      ? state.workspaces.map((ws) => (ws.id === workspaceId ? hydrated : ws))
+      : [...state.workspaces, hydrated];
+
+    const maxFloatZ = payload.floating.reduce(
+      (max, item) => Math.max(max, item.zIndex + 1),
+      state.topZIndex,
+    );
+
+    if (select || state.activeWorkspaceId === workspaceId) {
+      const snap = captureLayoutSnapshot('workspace', 1);
+      useLayoutStore.setState({
+        viewports: nextViewports,
+        workspaces,
+        activeWorkspaceId: hydrated.id,
+        dockRoot: hydrated.dockRoot,
+        floating: hydrated.floating,
+        activeViewportId: hydrated.activeViewportId,
+        maximizedViewportId: hydrated.maximizedViewportId,
+        activeLayoutPreset: hydrated.layoutPreset,
+        layoutTransitionSeq: snap.seq,
+        dragState: null,
+        topZIndex: maxFloatZ,
+      });
+      syncActiveSessionForWorkspace(
+        hydrated.dockRoot,
+        hydrated.floating,
+        hydrated.activeViewportId,
+        nextViewports,
+      );
+    } else {
+      useLayoutStore.setState({
+        viewports: nextViewports,
+        workspaces,
+        topZIndex: maxFloatZ,
+      });
+    }
+
+    return hydrated;
+  }
+
   closeWorkspace(workspaceId: string): void {
     const state = useLayoutStore.getState();
     const targetIdx = state.workspaces.findIndex((w) => w.id === workspaceId);
     if (targetIdx < 0) return;
     const target = state.workspaces[targetIdx];
 
+    const closingSnapshot: WorkspaceState =
+      state.activeWorkspaceId === workspaceId
+        ? {
+            ...target,
+            dockRoot: state.dockRoot,
+            floating: state.floating,
+            activeViewportId: state.activeViewportId,
+            maximizedViewportId: state.maximizedViewportId,
+            layoutPreset: state.activeLayoutPreset,
+          }
+        : target;
+
+    for (const listener of beforeWorkspaceCloseListeners) {
+      try {
+        listener(closingSnapshot, state.viewports);
+      } catch {
+        // Ignore workspace close listener errors
+      }
+    }
+
     const snap =
       state.workspaces.length <= 1 || state.activeWorkspaceId === workspaceId
         ? captureLayoutSnapshot('workspace', -1)
         : null;
 
-    const targetViewportIds = collectOrderedWorkspaceIds(target.dockRoot, target.floating);
+    const targetViewportIds = collectOrderedWorkspaceIds(
+      closingSnapshot.dockRoot,
+      closingSnapshot.floating,
+    );
     const restViewports = { ...state.viewports };
 
     for (const vid of targetViewportIds) {
@@ -492,6 +616,8 @@ export class LayoutService {
     if (state.workspaces.length <= 1) {
       const resetWs: WorkspaceState = {
         ...target,
+        name: closingSnapshot.savedWorkspaceId ? 'Workspace 1' : target.name,
+        savedWorkspaceId: null,
         dockRoot: null,
         floating: [],
         activeViewportId: null,
@@ -1298,6 +1424,7 @@ export class LayoutService {
   resetForTesting(): void {
     workspaceSeq = 1;
     lastAutoCollapseAt = { left: 0, right: 0 };
+    beforeWorkspaceCloseListeners.clear();
     resetLayoutAnimatorForTesting();
     const resetWs = createEmptyWorkspace('Workspace 1', 'ws-1');
     useLayoutStore.setState({

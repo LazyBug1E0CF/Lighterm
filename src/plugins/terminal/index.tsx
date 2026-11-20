@@ -119,6 +119,9 @@ export const terminalPlugin: PluginDefinition = {
     }
 
     const unsubCreate = shell.onSessionCreated((record, meta) => {
+      if ((meta as { skipAutoViewport?: boolean } | undefined)?.skipAutoViewport) {
+        return;
+      }
       openViewportForSession(record.info.id, record.info.title, meta);
     });
     const unsubClose = shell.onSessionClosed((sessionId) => {

@@ -5,8 +5,8 @@ use std::time::Instant;
 use lighterm_core::error::{CoreError, CoreResult};
 use lighterm_core::events::CoreEventSink;
 use lighterm_core::models::{
-    AppSettings, ConnectionTestResult, HostConfig, PluginInfo, SessionInfo, SessionKind,
-    SessionStatus,
+    AppSettings, ConnectionTestResult, HostConfig, PluginInfo, SavedWorkspace, SessionInfo,
+    SessionKind, SessionStatus,
 };
 use lighterm_core::ssh::connect_host;
 use lighterm_core::LightermCore;
@@ -108,6 +108,22 @@ fn resolve_host(state: &State<'_, AppState>, host_id: &str) -> CoreResult<HostCo
 
 // ---- Window Lifecycle Commands ----
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowStatePayload {
+    pub platform: &'static str,
+    pub maximized: bool,
+    pub focused: bool,
+}
+
+pub fn build_window_state(maximized: bool, focused: bool) -> WindowStatePayload {
+    WindowStatePayload {
+        platform: std::env::consts::OS,
+        maximized,
+        focused,
+    }
+}
+
 /// Reveals and focuses the main window as soon as React commits its initial UI DOM.
 #[tauri::command]
 pub fn window_ready(window: tauri::Window) {
@@ -120,6 +136,40 @@ pub fn window_ready(window: tauri::Window) {
 pub fn window_enable_transparency(window: tauri::Window, webview: tauri::Webview) {
     let _ = window.set_background_color(None);
     let _ = webview.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)));
+}
+
+#[tauri::command]
+pub fn window_get_state(window: tauri::Window) -> WindowStatePayload {
+    build_window_state(
+        window.is_maximized().unwrap_or(false),
+        window.is_focused().unwrap_or(true),
+    )
+}
+
+#[tauri::command]
+pub fn window_minimize(window: tauri::Window) {
+    let _ = window.minimize();
+}
+
+#[tauri::command]
+pub fn window_toggle_maximize(window: tauri::Window) -> bool {
+    let currently_maximized = window.is_maximized().unwrap_or(false);
+    if currently_maximized {
+        let _ = window.unmaximize();
+    } else {
+        let _ = window.maximize();
+    }
+    window.is_maximized().unwrap_or(!currently_maximized)
+}
+
+#[tauri::command]
+pub fn window_close(window: tauri::Window) {
+    let _ = window.close();
+}
+
+#[tauri::command]
+pub fn window_start_dragging(window: tauri::Window) {
+    let _ = window.start_dragging();
 }
 
 // ---- Core Shell Session Commands ----
@@ -247,6 +297,35 @@ pub async fn hosts_test_connection(host: HostConfig) -> ConnectionTestResult {
             message: err.to_string(),
         },
     }
+}
+
+// ---- Core Workspaces Commands ----
+
+#[tauri::command]
+pub async fn workspaces_list(state: State<'_, AppState>) -> CoreResult<Vec<SavedWorkspace>> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || core.storage.list_workspaces()).await
+}
+
+#[tauri::command]
+pub async fn workspaces_save(
+    state: State<'_, AppState>,
+    workspace: SavedWorkspace,
+) -> CoreResult<SavedWorkspace> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.save_workspace(workspace)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn workspaces_delete(state: State<'_, AppState>, id: String) -> CoreResult<()> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.delete_workspace(&id)
+    })
+    .await
 }
 
 // ---- Core Settings Commands ----

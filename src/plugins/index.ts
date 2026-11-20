@@ -1,4 +1,6 @@
 import { shellService } from '../core/shellService';
+import { windowControls } from '../core/windowControls';
+import { workspaceManager } from '../core/workspaceManager';
 import { harnessKernel } from '../harness/HarnessKernel';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import { historyPlugin, HISTORY_VIEWPORT_TYPE } from './history';
@@ -30,6 +32,7 @@ export async function bootstrapLightermHarness(): Promise<void> {
 
   bootstrapPromise = (async () => {
     registerBuiltinPlugins(harnessKernel);
+    workspaceManager.installAutoSync();
     const initTask = shellService.initialize();
     const startTask = harnessKernel.start();
 
@@ -96,9 +99,11 @@ export async function bootstrapLightermHarness(): Promise<void> {
 
 export function resetLightermHarnessForTesting(): void {
   bootstrapPromise = null;
+  workspaceManager.resetForTesting();
   harnessKernel.resetForTesting();
   layoutService.resetForTesting();
   shellService.resetForTesting();
+  windowControls.resetForTesting();
 }
 
 export {

@@ -10,7 +10,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
-use crate::models::{AppSettings, HostConfig};
+use crate::models::{AppSettings, HostConfig, SavedWorkspace};
 
 pub struct Storage {
     data_dir: PathBuf,
@@ -176,6 +176,55 @@ impl Storage {
         self.write_json_atomic("hosts.json", &hosts, true)
     }
 
+    // ---- Workspaces ----
+
+    pub fn list_workspaces(&self) -> CoreResult<Vec<SavedWorkspace>> {
+        let _guard = self.lock.lock();
+        self.read_json_or_default("workspaces.json")
+    }
+
+    pub fn save_workspace(&self, mut workspace: SavedWorkspace) -> CoreResult<SavedWorkspace> {
+        let trimmed_name = workspace.name.trim().to_string();
+        if trimmed_name.is_empty() {
+            return Err(CoreError::InvalidInput(
+                "workspace name cannot be empty".into(),
+            ));
+        }
+        workspace.name = trimmed_name;
+
+        let _guard = self.lock.lock();
+        let mut workspaces: Vec<SavedWorkspace> = self.read_json_or_default("workspaces.json")?;
+        let now = chrono::Utc::now().timestamp_millis();
+
+        if workspace.id.trim().is_empty() {
+            workspace.id = uuid::Uuid::new_v4().to_string();
+        }
+        if workspace.created_at == 0 {
+            if let Some(existing) = workspaces.iter().find(|w| w.id == workspace.id) {
+                workspace.created_at = existing.created_at;
+            } else {
+                workspace.created_at = now;
+            }
+        }
+        workspace.updated_at = now;
+
+        if let Some(existing) = workspaces.iter_mut().find(|w| w.id == workspace.id) {
+            *existing = workspace.clone();
+        } else {
+            workspaces.push(workspace.clone());
+        }
+
+        self.write_json_atomic("workspaces.json", &workspaces, true)?;
+        Ok(workspace)
+    }
+
+    pub fn delete_workspace(&self, id: &str) -> CoreResult<()> {
+        let _guard = self.lock.lock();
+        let mut workspaces: Vec<SavedWorkspace> = self.read_json_or_default("workspaces.json")?;
+        workspaces.retain(|w| w.id != id);
+        self.write_json_atomic("workspaces.json", &workspaces, true)
+    }
+
     // ---- Settings ----
 
     pub fn get_settings(&self) -> CoreResult<AppSettings> {
@@ -191,5 +240,97 @@ impl Storage {
         let _guard = self.lock.lock();
         self.write_json_atomic("settings.json", &settings, false)?;
         Ok(settings)
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+    use crate::models::{
+        QuickShellLayoutPreset, SavedDockNode, SavedFloatingSlot, SavedTerminalSlot, SessionKind,
+        SplitDirection,
+    };
+
+    #[test]
+    fn workspaces_persist_and_serialize_dock_nodes_camel_case() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let storage = Storage::new(dir.path().to_path_buf()).expect("storage");
+
+        assert!(storage.list_workspaces().expect("initial list").is_empty());
+
+        let dock = SavedDockNode::Split {
+            direction: SplitDirection::Horizontal,
+            ratio: 0.42,
+            first: Box::new(SavedDockNode::Group {
+                slot_ids: vec!["slot-1".into(), "slot-2".into()],
+                active_slot_id: Some("slot-2".into()),
+            }),
+            second: Box::new(SavedDockNode::Group {
+                slot_ids: vec!["slot-3".into()],
+                active_slot_id: Some("slot-3".into()),
+            }),
+        };
+
+        let json_val = serde_json::to_value(&dock).expect("serialize dock");
+        assert_eq!(json_val["type"], "split");
+        assert_eq!(json_val["direction"], "horizontal");
+        assert_eq!(json_val["first"]["type"], "group");
+        assert!(json_val["first"].get("slotIds").is_some());
+        assert!(json_val["first"].get("slot_ids").is_none());
+        assert_eq!(json_val["first"]["activeSlotId"], "slot-2");
+
+        let saved = storage
+            .save_workspace(SavedWorkspace {
+                id: String::new(),
+                name: "  Prod Cluster  ".into(),
+                slots: vec![SavedTerminalSlot {
+                    slot_id: "slot-1".into(),
+                    title: "web-01".into(),
+                    kind: SessionKind::Ssh,
+                    host_id: Some("host-1".into()),
+                    cwd: None,
+                    shell: None,
+                }],
+                dock_root: Some(dock),
+                floating: vec![SavedFloatingSlot {
+                    slot_id: "slot-float".into(),
+                    x: 40.0,
+                    y: 50.0,
+                    width: 420.0,
+                    height: 300.0,
+                    z_index: 3,
+                }],
+                active_slot_id: Some("slot-2".into()),
+                maximized_slot_id: None,
+                layout_preset: Some(QuickShellLayoutPreset::Hsp),
+                created_at: 0,
+                updated_at: 0,
+            })
+            .expect("save workspace");
+
+        assert!(!saved.id.is_empty());
+        assert_eq!(saved.name, "Prod Cluster");
+        assert!(saved.created_at > 0);
+        assert!(saved.updated_at >= saved.created_at);
+
+        let listed = storage.list_workspaces().expect("list after save");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, saved.id);
+        assert_eq!(listed[0].layout_preset, Some(QuickShellLayoutPreset::Hsp));
+        assert_eq!(listed[0].floating.len(), 1);
+
+        let mut renamed = listed[0].clone();
+        renamed.name = "Staging Cluster".into();
+        let updated = storage.save_workspace(renamed).expect("rename save");
+        assert_eq!(updated.id, saved.id);
+        assert_eq!(updated.created_at, saved.created_at);
+        assert_eq!(storage.list_workspaces().expect("list").len(), 1);
+        assert_eq!(
+            storage.list_workspaces().expect("list")[0].name,
+            "Staging Cluster"
+        );
+
+        storage.delete_workspace(&saved.id).expect("delete");
+        assert!(storage.list_workspaces().expect("list after delete").is_empty());
     }
 }

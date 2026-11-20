@@ -1,14 +1,15 @@
 import type { PreferredDockPosition, ViewportInstanceRef } from '../harness/types';
-import type { SplitDirection } from '../types';
+import type { QuickShellLayoutPreset, SplitDirection } from '../types';
 
 export type DrawerSide = 'left' | 'right';
 export type DockEdge = 'left' | 'right' | 'top' | 'bottom';
 export type DockZone = 'center' | DockEdge;
-export type QuickShellLayoutPreset = 'tab' | 'vsp' | 'hsp' | 'grid';
+export type { QuickShellLayoutPreset };
 
 export interface WorkspaceState {
   id: string;
   name: string;
+  savedWorkspaceId?: string | null;
   dockRoot: DockNode | null;
   floating: FloatingViewportItem[];
   activeViewportId: string | null;

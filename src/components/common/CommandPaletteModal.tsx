@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Code2, History, Search, Server, Terminal } from 'lucide-react';
+import { Code2, History, Layers, Search, Server, Terminal } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
+import { workspaceManager } from '../../core/workspaceManager';
 import { useCommands } from '../../harness/HarnessContext';
 import { layoutService } from '../../layout/layoutStore';
 
@@ -15,6 +16,7 @@ interface PaletteItem {
 export const CommandPaletteModal: React.FC = () => {
   const open = useShellStore((s) => s.commandPaletteOpen);
   const hosts = useShellStore((s) => s.hosts);
+  const savedWorkspaces = useShellStore((s) => s.savedWorkspaces);
   const pluginCommands = useCommands();
 
   const [query, setQuery] = useState('');
@@ -44,6 +46,14 @@ export const CommandPaletteModal: React.FC = () => {
         run: async () => {
           layoutService.createWorkspace();
           await shellService.createLocalSession();
+        },
+      },
+      {
+        id: 'core-save-workspace',
+        group: 'Core',
+        label: 'Save Current Workspace',
+        run: async () => {
+          await workspaceManager.saveWorkspace();
         },
       },
       {
@@ -84,6 +94,16 @@ export const CommandPaletteModal: React.FC = () => {
       },
     ];
 
+    const workspaceItems: PaletteItem[] = savedWorkspaces.map((ws) => ({
+      id: `workspace-${ws.id}`,
+      group: 'Workspace',
+      label: `Open Workspace: ${ws.name}`,
+      subtitle: `${ws.slots.length} terminals · ${(ws.layoutPreset ?? 'tab').toUpperCase()}`,
+      run: async () => {
+        await workspaceManager.openSavedWorkspace(ws.id);
+      },
+    }));
+
     const hostItems: PaletteItem[] = hosts.map((h) => ({
       id: `host-${h.id}`,
       group: 'SSH Host',
@@ -102,7 +122,7 @@ export const CommandPaletteModal: React.FC = () => {
       run: cmd.run,
     }));
 
-    const all = [...coreActions, ...hostItems, ...dynamicItems];
+    const all = [...coreActions, ...workspaceItems, ...hostItems, ...dynamicItems];
     const q = query.trim().toLowerCase();
     if (!q) return all.slice(0, 32);
     return all
@@ -113,7 +133,7 @@ export const CommandPaletteModal: React.FC = () => {
           item.group.toLowerCase().includes(q),
       )
       .slice(0, 32);
-  }, [hosts, pluginCommands, query]);
+  }, [hosts, savedWorkspaces, pluginCommands, query]);
 
   if (!open) return null;
 
@@ -183,7 +203,9 @@ export const CommandPaletteModal: React.FC = () => {
                 }`}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  {item.group === 'SSH Host' ? (
+                  {item.group === 'Workspace' ? (
+                    <Layers className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                  ) : item.group === 'SSH Host' ? (
                     <Server className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
                   ) : item.group === 'Snippet' ? (
                     <Code2 className="w-3.5 h-3.5 text-[var(--success)] shrink-0" />

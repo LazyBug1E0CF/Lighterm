@@ -163,6 +163,53 @@ export interface SystemStats {
 
 export type SplitDirection = 'horizontal' | 'vertical';
 
+export type QuickShellLayoutPreset = 'tab' | 'vsp' | 'hsp' | 'grid';
+
+export interface SavedTerminalSlot {
+  slotId: string;
+  title: string;
+  kind: SessionKind;
+  hostId?: string;
+  cwd?: string;
+  shell?: string;
+}
+
+export type SavedDockNode =
+  | {
+      type: 'group';
+      slotIds: string[];
+      activeSlotId?: string | null;
+    }
+  | {
+      type: 'split';
+      direction: SplitDirection;
+      ratio: number;
+      first: SavedDockNode;
+      second: SavedDockNode;
+    };
+
+export interface SavedFloatingSlot {
+  slotId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+}
+
+export interface SavedWorkspace {
+  id: string;
+  name: string;
+  slots: SavedTerminalSlot[];
+  dockRoot: SavedDockNode | null;
+  floating: SavedFloatingSlot[];
+  activeSlotId?: string | null;
+  maximizedSlotId?: string | null;
+  layoutPreset?: QuickShellLayoutPreset | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ThemePreset {
   id: string;
   name: string;

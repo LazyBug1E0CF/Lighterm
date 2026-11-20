@@ -1,34 +1,13 @@
-import React from 'react';
 import { History } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
+import type { LayoutService } from '../../layout/layoutStore';
 import type { HistoryEntry } from '../../types';
 import { CommandTracker } from '../../utils/commandTracker';
 import { historyClient } from './historyClient';
 import { HistoryViewport } from './HistoryViewport';
 
 export const HISTORY_VIEWPORT_TYPE = 'history.panel';
-
-const HistoryTopBarButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(HISTORY_VIEWPORT_TYPE));
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title="Toggle Command History Viewport"
-      aria-label="Command History"
-      className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors ${
-        isOpen
-          ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/40'
-          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-      }`}
-    >
-      <History className="w-3.5 h-3.5" />
-      <span className="hidden lg:inline">History</span>
-    </button>
-  );
-};
 
 export const historyPlugin: PluginDefinition = {
   id: 'lighterm.history',
@@ -87,13 +66,6 @@ export const historyPlugin: PluginDefinition = {
         preferredDock: 'left-drawer',
       });
     };
-
-    ctx.registerSlot({
-      id: 'history-topbar-btn',
-      slot: 'topbar:right',
-      order: 24,
-      render: () => <HistoryTopBarButton onToggle={toggle} />,
-    });
 
     ctx.registerCommand({
       id: 'history:toggle',

@@ -8,7 +8,7 @@ use lighterm_plugin_history::HistoryPlugin;
 use lighterm_plugin_monitor::MonitorPlugin;
 use lighterm_plugin_sftp::SftpPlugin;
 use lighterm_plugin_snippets::SnippetsPlugin;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[cfg(target_os = "linux")]
 fn install_linux_gtk_log_filter() {
@@ -71,6 +71,25 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState { core })
         .setup(|app| {
+            if let Some(main_win) = app.get_webview_window("main") {
+                let win_events = main_win.clone();
+                main_win.on_window_event(move |event| match event {
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_) => {
+                        let focused = if let tauri::WindowEvent::Focused(f) = event {
+                            *f
+                        } else {
+                            win_events.is_focused().unwrap_or(true)
+                        };
+                        let maximized = win_events.is_maximized().unwrap_or(false);
+                        let _ = win_events.emit(
+                            "window:state-changed",
+                            commands::build_window_state(maximized, focused),
+                        );
+                    }
+                    _ => {}
+                });
+            }
+
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -85,6 +104,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::window_ready,
             commands::window_enable_transparency,
+            commands::window_get_state,
+            commands::window_minimize,
+            commands::window_toggle_maximize,
+            commands::window_close,
+            commands::window_start_dragging,
             commands::terminal_create_local,
             commands::terminal_create_ssh,
             commands::terminal_write,
@@ -95,6 +119,9 @@ pub fn run() {
             commands::hosts_save,
             commands::hosts_delete,
             commands::hosts_test_connection,
+            commands::workspaces_list,
+            commands::workspaces_save,
+            commands::workspaces_delete,
             commands::settings_get,
             commands::settings_save,
             commands::plugins_list,

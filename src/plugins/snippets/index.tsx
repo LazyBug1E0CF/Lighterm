@@ -1,33 +1,12 @@
-import React from 'react';
 import { Code2 } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
+import type { LayoutService } from '../../layout/layoutStore';
 import type { Snippet } from '../../types';
 import { snippetsClient } from './snippetsClient';
 import { SnippetsViewport } from './SnippetsViewport';
 
 export const SNIPPETS_VIEWPORT_TYPE = 'snippets.panel';
-
-const SnippetsTopBarButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(SNIPPETS_VIEWPORT_TYPE));
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title="Toggle Command Snippets Viewport"
-      aria-label="Snippets"
-      className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors ${
-        isOpen
-          ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/40'
-          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-      }`}
-    >
-      <Code2 className="w-3.5 h-3.5" />
-      <span className="hidden lg:inline">Snippets</span>
-    </button>
-  );
-};
 
 export const snippetsPlugin: PluginDefinition = {
   id: 'lighterm.snippets',
@@ -59,13 +38,6 @@ export const snippetsPlugin: PluginDefinition = {
         preferredDock: 'left-drawer',
       });
     };
-
-    ctx.registerSlot({
-      id: 'snippets-topbar-btn',
-      slot: 'topbar:right',
-      order: 22,
-      render: () => <SnippetsTopBarButton onToggle={toggle} />,
-    });
 
     ctx.registerCommand({
       id: 'snippets:toggle',

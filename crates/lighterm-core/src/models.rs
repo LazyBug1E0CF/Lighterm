@@ -166,3 +166,86 @@ pub struct PluginInfo {
     pub enabled: bool,
     pub dependencies: Vec<String>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SplitDirection {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum QuickShellLayoutPreset {
+    Tab,
+    Vsp,
+    Hsp,
+    Grid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedTerminalSlot {
+    pub slot_id: String,
+    pub title: String,
+    pub kind: SessionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SavedDockNode {
+    #[serde(rename_all = "camelCase")]
+    Group {
+        slot_ids: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active_slot_id: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Split {
+        direction: SplitDirection,
+        ratio: f64,
+        first: Box<SavedDockNode>,
+        second: Box<SavedDockNode>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedFloatingSlot {
+    pub slot_id: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub z_index: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedWorkspace {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub slots: Vec<SavedTerminalSlot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dock_root: Option<SavedDockNode>,
+    #[serde(default)]
+    pub floating: Vec<SavedFloatingSlot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_slot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximized_slot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_preset: Option<QuickShellLayoutPreset>,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+

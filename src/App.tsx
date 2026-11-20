@@ -8,6 +8,7 @@ import { ShellStatusBar } from './components/shell/ShellStatusBar';
 import { ShellTopBar } from './components/shell/ShellTopBar';
 import { invokeTauri, isTauriRuntime } from './core/ipc';
 import { shellService, useShellStore } from './core/shellService';
+import { useWindowStore, windowControls } from './core/windowControls';
 import { HarnessProvider } from './harness/HarnessContext';
 import { harnessKernel } from './harness/HarnessKernel';
 import { WorkspaceCanvas } from './layout/WorkspaceCanvas';
@@ -18,9 +19,11 @@ import { matchesShortcut } from './utils/shortcuts';
 const LightermShell: React.FC = () => {
   const settings = useShellStore((s) => s.settings);
   const statusBannerError = useShellStore((s) => s.statusBannerError);
+  const maximized = useWindowStore((s) => s.maximized);
 
   useEffect(() => {
     void bootstrapLightermHarness();
+    void windowControls.initialize();
   }, []);
 
   // Reveal the window right after React commits DOM, then enable CSS-controlled transparency post-paint.
@@ -94,7 +97,9 @@ const LightermShell: React.FC = () => {
 
   return (
     <div
-      className="w-screen h-screen flex flex-col overflow-hidden"
+      className={`w-screen h-screen flex flex-col overflow-hidden ${
+        maximized ? 'border-0' : 'border border-[var(--border-subtle)]/75'
+      }`}
       style={{ backgroundColor: 'var(--bg-app)', color: 'var(--text-primary)' }}
     >
       <ShellTopBar />

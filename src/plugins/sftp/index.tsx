@@ -1,33 +1,12 @@
-import React from 'react';
 import { FolderOpen } from 'lucide-react';
 import { type ShellService, useShellStore } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
+import type { LayoutService } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { sftpClient, subscribeSftpProgressEvents, useSftpPluginStore } from './sftpClient';
 import { SftpViewport } from './SftpViewport';
 
 export const SFTP_VIEWPORT_TYPE = 'sftp.browser';
-
-const SftpTopBarButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(SFTP_VIEWPORT_TYPE));
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title="Toggle SFTP File Browser (Ctrl+Shift+S)"
-      aria-label="Toggle SFTP"
-      className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors ${
-        isOpen
-          ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/40'
-          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-      }`}
-    >
-      <FolderOpen className="w-3.5 h-3.5" />
-      <span className="hidden lg:inline">SFTP</span>
-    </button>
-  );
-};
 
 export const sftpPlugin: PluginDefinition = {
   id: 'lighterm.sftp',
@@ -113,13 +92,6 @@ export const sftpPlugin: PluginDefinition = {
         void sftpClient.openForHost(targetHostId, host?.defaultPath ?? '.');
       }
     };
-
-    ctx.registerSlot({
-      id: 'sftp-topbar-btn',
-      slot: 'topbar:right',
-      order: 30,
-      render: () => <SftpTopBarButton onToggle={toggle} />,
-    });
 
     ctx.registerSlot({
       id: 'sftp-statusbar-btn',

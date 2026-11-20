@@ -3,6 +3,7 @@ import type {
   AppSettings,
   ConnectionTestResult,
   HostConfig,
+  SavedWorkspace,
   SessionInfo,
   SessionKind,
   SessionStatus,
@@ -12,6 +13,7 @@ import { DEFAULT_SHORTCUTS } from '../utils/shortcuts';
 import { invokeTauri, isTauriRuntime, listenTauri, makeUuid, readLs, writeLs } from './ipc';
 
 const LS_HOSTS = 'lighterm:hosts';
+const LS_WORKSPACES = 'lighterm:workspaces';
 const LS_SETTINGS = 'lighterm:settings';
 const MAX_HISTORY_BYTES = 256 * 1024;
 const MAX_EARLY_CHUNKS = 256;
@@ -20,6 +22,8 @@ export interface ShellSessionRecord {
   info: SessionInfo;
   hostId?: string;
   hostConfig?: HostConfig;
+  cwd?: string;
+  shell?: string;
 }
 
 export interface ShellStoreState {
@@ -31,6 +35,7 @@ export interface ShellStoreState {
   sessionMessages: Record<string, string | undefined>;
   sessionDimensions: Record<string, { cols: number; rows: number }>;
   hosts: HostConfig[];
+  savedWorkspaces: SavedWorkspace[];
   settings: AppSettings;
 
   hostModalOpen: boolean;
@@ -104,6 +109,7 @@ export const useShellStore = create<ShellStoreState>(() => ({
   sessionMessages: {},
   sessionDimensions: {},
   hosts: [],
+  savedWorkspaces: [],
   settings: createDefaultSettings(),
 
   hostModalOpen: false,
@@ -273,9 +279,10 @@ export class ShellService {
 
     initPromise = (async () => {
       await ensureTauriListeners();
-      const [settings, hosts] = await Promise.all([
+      const [settings, hosts, savedWorkspaces] = await Promise.all([
         this.loadSettings().catch(() => createDefaultSettings()),
         this.listHosts().catch(() => [] as HostConfig[]),
+        this.listSavedWorkspaces().catch(() => [] as SavedWorkspace[]),
       ]);
       const defaults = createDefaultSettings();
       useShellStore.setState({
@@ -285,6 +292,7 @@ export class ShellService {
           shortcuts: { ...defaults.shortcuts, ...settings.shortcuts },
         },
         hosts,
+        savedWorkspaces,
         initialized: true,
       });
     })();
@@ -330,7 +338,11 @@ export class ShellService {
         };
       }
 
-      const record: ShellSessionRecord = { info };
+      const record: ShellSessionRecord = {
+        info,
+        cwd: params?.cwd,
+        shell: params?.shell,
+      };
       useShellStore.setState((state) => ({
         sessions: { ...state.sessions, [info.id]: record },
         sessionOrder: [...state.sessionOrder, info.id],
@@ -736,6 +748,67 @@ export class ShellService {
     };
   }
 
+  // ---- Core Saved Workspaces ----
+
+  async listSavedWorkspaces(): Promise<SavedWorkspace[]> {
+    const savedWorkspaces = isTauriRuntime()
+      ? await invokeTauri<SavedWorkspace[]>('workspaces_list')
+      : readLs<SavedWorkspace[]>(LS_WORKSPACES, () => []);
+    useShellStore.setState({ savedWorkspaces });
+    return savedWorkspaces;
+  }
+
+  async saveWorkspaceRecord(workspace: SavedWorkspace): Promise<SavedWorkspace> {
+    const trimmedName = workspace.name.trim();
+    if (!trimmedName) {
+      throw new Error('Workspace name cannot be empty');
+    }
+    const payload: SavedWorkspace = {
+      ...workspace,
+      name: trimmedName,
+    };
+
+    let saved: SavedWorkspace;
+    if (isTauriRuntime()) {
+      saved = await invokeTauri<SavedWorkspace>('workspaces_save', { workspace: payload });
+    } else {
+      const workspaces = readLs<SavedWorkspace[]>(LS_WORKSPACES, () => []);
+      const now = Date.now();
+      const id = payload.id.trim() ? payload.id : makeUuid();
+      const existingIdx = workspaces.findIndex((w) => w.id === id);
+      const createdAt =
+        payload.createdAt > 0
+          ? payload.createdAt
+          : existingIdx >= 0
+            ? workspaces[existingIdx].createdAt
+            : now;
+      saved = {
+        ...payload,
+        id,
+        createdAt,
+        updatedAt: now,
+      };
+      if (existingIdx >= 0) workspaces[existingIdx] = saved;
+      else workspaces.push(saved);
+      writeLs(LS_WORKSPACES, workspaces);
+    }
+
+    await this.listSavedWorkspaces();
+    return saved;
+  }
+
+  async deleteSavedWorkspace(id: string): Promise<void> {
+    if (isTauriRuntime()) {
+      await invokeTauri<void>('workspaces_delete', { id });
+    } else {
+      const workspaces = readLs<SavedWorkspace[]>(LS_WORKSPACES, () => []).filter(
+        (w) => w.id !== id,
+      );
+      writeLs(LS_WORKSPACES, workspaces);
+    }
+    await this.listSavedWorkspaces();
+  }
+
   // ---- Core Settings ----
 
   async loadSettings(): Promise<AppSettings> {
@@ -816,6 +889,7 @@ export class ShellService {
       sessionMessages: {},
       sessionDimensions: {},
       hosts: [],
+      savedWorkspaces: [],
       settings: createDefaultSettings(),
       hostModalOpen: false,
       editingHost: null,

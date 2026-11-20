@@ -1,32 +1,11 @@
-import React from 'react';
 import { Server } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
+import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { HostsViewport } from './HostsViewport';
 
 export const HOSTS_VIEWPORT_TYPE = 'hosts.manager';
-
-const HostsToggleButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(HOSTS_VIEWPORT_TYPE));
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title="Toggle SSH Hosts Viewport (Ctrl+Shift+B)"
-      aria-label="SSH Hosts"
-      className={`h-7 px-2 rounded-md flex items-center gap-1 text-xs transition-colors ${
-        isOpen
-          ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/40'
-          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-      }`}
-    >
-      <Server className="w-3.5 h-3.5" />
-      <span className="hidden lg:inline">Hosts</span>
-    </button>
-  );
-};
 
 export const hostsPlugin: PluginDefinition = {
   id: 'lighterm.hosts',
@@ -65,13 +44,6 @@ export const hostsPlugin: PluginDefinition = {
         toggle();
       }
     };
-
-    ctx.registerSlot({
-      id: 'hosts-toggle',
-      slot: 'topbar:right',
-      order: 20,
-      render: () => <HostsToggleButton onToggle={toggle} />,
-    });
 
     ctx.registerCommand({
       id: 'hosts:toggle',
