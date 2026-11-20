@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,12 +10,13 @@ use parking_lot::Mutex;
 use russh::keys::PrivateKey;
 use russh::server::{self, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, Pty};
+use serde::{Deserialize, Serialize};
 use tempfile::tempdir;
 
+use lighterm_core::error::{CoreError, CoreResult};
 use lighterm_core::events::CoreEventSink;
-use lighterm_core::models::{AuthMethod, HostConfig, SessionKind, SessionStatus, Snippet};
-use lighterm_core::monitor::{parse_remote_probe_output, RemotePrevCounters};
-use lighterm_core::sftp::{format_unix_mode, join_remote_path};
+use lighterm_core::models::{AuthMethod, HostConfig, SessionKind, SessionStatus};
+use lighterm_core::plugin::{CoreContext, CorePlugin};
 use lighterm_core::ssh::connect_host;
 use lighterm_core::LightermCore;
 
@@ -53,8 +55,6 @@ impl CoreEventSink for RecordingSink {
     fn on_terminal_status(&self, session_id: &str, status: SessionStatus, _message: Option<String>) {
         self.statuses.lock().push((session_id.to_string(), status));
     }
-
-    fn on_sftp_progress(&self, _progress: lighterm_core::models::SftpTransferProgress) {}
 }
 
 #[test]
@@ -63,13 +63,24 @@ fn local_pty_spawn_write_resize_close() {
     let core = LightermCore::with_data_dir(dir.path().to_path_buf()).unwrap();
     let sink = Arc::new(RecordingSink::default());
 
+    #[cfg(windows)]
+    let (shell_bin, raw_cmd): (&str, &[u8]) = (
+        "cmd.exe",
+        b"set \"LT_PFX=LIGHTERM_OK\" && call echo %LT_PFX%_42\r\n",
+    );
+    #[cfg(not(windows))]
+    let (shell_bin, raw_cmd): (&str, &[u8]) = (
+        "/bin/sh",
+        b"printf \"LIGHTERM_OK_%d\\n\" 42\n",
+    );
+
     let info = core
         .sessions
         .create_local(
             80,
             24,
             Some(dir.path().to_string_lossy().into_owned()),
-            Some("/bin/sh".to_string()),
+            Some(shell_bin.to_string()),
             Some("Test Shell".to_string()),
             sink.clone(),
         )
@@ -78,11 +89,32 @@ fn local_pty_spawn_write_resize_close() {
     assert_eq!(info.kind, SessionKind::Local);
     assert_eq!(core.sessions.list_sessions().len(), 1);
 
-    let cmd = BASE64.encode(b"printf \"LIGHTERM_OK_%d\\n\" 42\n");
+    #[cfg(windows)]
+    {
+        // Windows ConPTY (PSEUDOCONSOLE_INHERIT_CURSOR) emits DSR `\x1b[6n` on startup
+        // and blocks until the terminal host replies with CPR `\x1b[1;1R`.
+        for _ in 0..80 {
+            if sink.output_text(&info.id).contains("\x1b[6n") {
+                core.sessions
+                    .write_base64(&info.id, &BASE64.encode(b"\x1b[1;1R"))
+                    .unwrap();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        for _ in 0..80 {
+            if sink.output_text(&info.id).contains('>') {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    let cmd = BASE64.encode(raw_cmd);
     core.sessions.write_base64(&info.id, &cmd).unwrap();
 
     let mut found = false;
-    for _ in 0..50 {
+    for _ in 0..120 {
         if sink.output_text(&info.id).contains("LIGHTERM_OK_42") {
             found = true;
             break;
@@ -104,33 +136,16 @@ fn local_pty_spawn_write_resize_close() {
     assert!(core.sessions.list_sessions().is_empty());
 }
 
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+struct DummyPluginData {
+    counter: u32,
+    label: String,
+}
+
 #[test]
 fn storage_roundtrip_and_unix_permissions() {
     let dir = tempdir().unwrap();
     let core = LightermCore::with_data_dir(dir.path().to_path_buf()).unwrap();
-
-    // Starter snippets and settings seeded automatically
-    let snippets = core.storage.list_snippets().unwrap();
-    assert!(!snippets.is_empty());
-
-    let new_snip = core
-        .storage
-        .save_snippet(Snippet {
-            id: String::new(),
-            title: "Check Memory".to_string(),
-            command: "free -h".to_string(),
-            category: "System".to_string(),
-            description: None,
-            auto_execute: true,
-            updated_at: 0,
-        })
-        .unwrap();
-    assert_eq!(
-        core.storage.list_snippets().unwrap().len(),
-        snippets.len() + 1
-    );
-    core.storage.delete_snippet(&new_snip.id).unwrap();
-    assert_eq!(core.storage.list_snippets().unwrap().len(), snippets.len());
 
     // Host persistence and 0600 permissions on Unix
     let saved_host = core
@@ -163,22 +178,18 @@ fn storage_roundtrip_and_unix_permissions() {
     core.storage.delete_host(&saved_host.id).unwrap();
     assert!(core.storage.list_hosts().unwrap().is_empty());
 
-    // History deduplication & search
+    // Generic plugin JSON storage roundtrip
+    assert!(!core.storage.has_plugin_file("dummy-plugin.json"));
+    let data = DummyPluginData {
+        counter: 7,
+        label: "ok".to_string(),
+    };
     core.storage
-        .record_history("ls -la".to_string(), SessionKind::Local, "Local".to_string())
+        .write_plugin_json("dummy-plugin.json", &data, false)
         .unwrap();
-    core.storage
-        .record_history("uname -a".to_string(), SessionKind::Local, "Local".to_string())
-        .unwrap();
-    let updated = core
-        .storage
-        .record_history("ls -la".to_string(), SessionKind::Local, "Local".to_string())
-        .unwrap()
-        .unwrap();
-    assert_eq!(updated.count, 2);
-    let filtered = core.storage.list_history(Some("uname"), Some(10)).unwrap();
-    assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered[0].command, "uname -a");
+    assert!(core.storage.has_plugin_file("dummy-plugin.json"));
+    let loaded: DummyPluginData = core.storage.read_plugin_json("dummy-plugin.json").unwrap();
+    assert_eq!(loaded, data);
 
     // Settings persistence
     let mut settings = core.storage.get_settings().unwrap();
@@ -190,14 +201,125 @@ fn storage_roundtrip_and_unix_permissions() {
     assert!((reloaded.background_opacity - 0.85).abs() < f32::EPSILON);
 }
 
+#[derive(Default)]
+struct BaseTestPlugin {
+    activations: AtomicUsize,
+    deactivations: AtomicUsize,
+}
+
+impl CorePlugin for BaseTestPlugin {
+    fn id(&self) -> &'static str {
+        "test.base"
+    }
+
+    fn name(&self) -> &'static str {
+        "Base Plugin"
+    }
+
+    fn description(&self) -> &'static str {
+        "Provides base capability"
+    }
+
+    fn on_activate(&self, _ctx: &CoreContext) -> CoreResult<()> {
+        self.activations.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn on_deactivate(&self) -> CoreResult<()> {
+        self.deactivations.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+        self
+    }
+}
+
+#[derive(Default)]
+struct DependentTestPlugin {
+    activations: AtomicUsize,
+    deactivations: AtomicUsize,
+}
+
+impl CorePlugin for DependentTestPlugin {
+    fn id(&self) -> &'static str {
+        "test.dependent"
+    }
+
+    fn name(&self) -> &'static str {
+        "Dependent Plugin"
+    }
+
+    fn description(&self) -> &'static str {
+        "Requires test.base"
+    }
+
+    fn dependencies(&self) -> &'static [&'static str] {
+        &["test.base"]
+    }
+
+    fn on_activate(&self, _ctx: &CoreContext) -> CoreResult<()> {
+        self.activations.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn on_deactivate(&self) -> CoreResult<()> {
+        self.deactivations.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+        self
+    }
+}
+
 #[test]
-fn sftp_remote_path_and_mode_formatting() {
-    assert_eq!(join_remote_path("/var/www", "html"), "/var/www/html");
-    assert_eq!(join_remote_path("/var/www/", "../logs"), "/var/logs");
-    assert_eq!(join_remote_path("/var/www", "/etc/nginx"), "/etc/nginx");
-    assert_eq!(format_unix_mode(0o755, true, false), "drwxr-xr-x");
-    assert_eq!(format_unix_mode(0o644, false, false), "-rw-r--r--");
-    assert_eq!(format_unix_mode(0o777, false, true), "lrwxrwxrwx");
+fn plugin_registry_dependency_and_cascading_lifecycle() {
+    let dir = tempdir().unwrap();
+    let core = LightermCore::with_data_dir(dir.path().to_path_buf()).unwrap();
+    let ctx = core.context();
+
+    let base = Arc::new(BaseTestPlugin::default());
+    let dep = Arc::new(DependentTestPlugin::default());
+
+    // Register dependent before base; stays inactive until base activates
+    core.register_plugin(dep.clone()).unwrap();
+    assert!(!core.plugins.is_active("test.dependent"));
+    assert_eq!(dep.activations.load(Ordering::SeqCst), 0);
+
+    // Registering base activates both base and dependent in dependency order
+    core.register_plugin(base.clone()).unwrap();
+    assert!(core.plugins.is_active("test.base"));
+    assert!(core.plugins.is_active("test.dependent"));
+    assert_eq!(base.activations.load(Ordering::SeqCst), 1);
+    assert_eq!(dep.activations.load(Ordering::SeqCst), 1);
+
+    // Downcast active plugin works
+    let active_dep = core.plugins.get_active::<DependentTestPlugin>("test.dependent").unwrap();
+    assert_eq!(active_dep.id(), "test.dependent");
+
+    // Disabling base cascades deactivation to dependent
+    core.plugins.set_enabled("test.base", false, &ctx).unwrap();
+    assert!(!core.plugins.is_active("test.base"));
+    assert!(!core.plugins.is_active("test.dependent"));
+    assert_eq!(base.deactivations.load(Ordering::SeqCst), 1);
+    assert_eq!(dep.deactivations.load(Ordering::SeqCst), 1);
+
+    // Accessing disabled plugin yields CoreError::PluginDisabled
+    let err = core
+        .plugins
+        .get_active::<DependentTestPlugin>("test.dependent")
+        .err()
+        .unwrap();
+    assert!(matches!(err, CoreError::PluginDisabled(_)));
+
+    // Enabling dependent while base is disabled fails cleanly
+    assert!(core.plugins.set_enabled("test.dependent", true, &ctx).is_err());
+
+    // Re-enabling base automatically re-activates dependent since dependent was not explicitly disabled
+    core.plugins.set_enabled("test.base", true, &ctx).unwrap();
+    assert!(core.plugins.is_active("test.base"));
+    assert!(core.plugins.is_active("test.dependent"));
 }
 
 #[derive(Clone)]
@@ -413,93 +535,4 @@ async fn ssh_password_and_key_auth_roundtrip() {
         ..pw_host
     };
     assert!(connect_host(&bad_host).await.is_err());
-}
-
-#[test]
-fn local_and_remote_monitor_collection() {
-    let dir = tempdir().unwrap();
-    let core = LightermCore::with_data_dir(dir.path().to_path_buf()).unwrap();
-
-    let local = core.monitor.collect_local().unwrap();
-    assert_eq!(local.source, SessionKind::Local);
-    assert!(local.cpu_cores >= 1);
-    assert!(local.mem_total_bytes > 0);
-    assert!(!local.top_processes.is_empty());
-
-    let sample_1 = "\
-===HOST===
-prod-node-01
-Linux 6.8.0-45-generic
-x86_64
-===UPTIME===
-123456.78 987654.32
-===LOAD===
-0.42 0.31 0.25 1/240 1234
-===CPU===
-4
-cpu  1000 0 500 8500 0 0 0 0 0 0
-===MEM===
-MemTotal:        8192000 kB
-MemAvailable:    4096000 kB
-SwapTotal:       2048000 kB
-SwapFree:        1536000 kB
-===NET===
-Inter-|   Receive                                                |  Transmit
- face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
-    lo: 10000 100 0 0 0 0 0 0 10000 100 0 0 0 0 0 0
-  eth0: 100000 100 0 0 0 0 0 0 50000 80 0 0 0 0 0 0
-===DISK===
-Filesystem     Type 1B-blocks        Used   Available Capacity Mounted on
-/dev/sda1      ext4 107374182400 53687091200 53687091200      50% /
-tmpfs          tmpfs 4194304000     1048576  4193255424       1% /run
-===PROC===
-  101 12.5 102400 nginx
-  202  3.2  51200 postgres
-";
-
-    let sample_2 = "\
-===HOST===
-prod-node-01
-Linux 6.8.0-45-generic
-x86_64
-===UPTIME===
-123458.78 987656.32
-===LOAD===
-0.55 0.35 0.27 2/240 1235
-===CPU===
-4
-cpu  1200 0 600 9200 0 0 0 0 0 0
-===MEM===
-MemTotal:        8192000 kB
-MemAvailable:    4096000 kB
-SwapTotal:       2048000 kB
-SwapFree:        1536000 kB
-===NET===
-    lo: 10500 102 0 0 0 0 0 0 10500 102 0 0 0 0 0 0
-  eth0: 104096 105 0 0 0 0 0 0 52048 84 0 0 0 0 0 0
-===DISK===
-Filesystem     Type 1B-blocks        Used   Available Capacity Mounted on
-/dev/sda1      ext4 107374182400 53687091200 53687091200      50% /
-===PROC===
-  101 12.5 102400 nginx
-  202  3.2  51200 postgres
-";
-
-    let t0 = std::time::Instant::now();
-    let mut prev = RemotePrevCounters::default();
-    let first = parse_remote_probe_output(sample_1, "10.0.0.1", &mut prev, t0);
-    assert_eq!(first.hostname, "prod-node-01");
-    assert_eq!(first.cpu_cores, 4);
-    assert_eq!(first.mem_total_bytes, 8192000 * 1024);
-    assert_eq!(first.mem_used_bytes, 4096000 * 1024);
-    assert_eq!(first.disks.len(), 1);
-    assert_eq!(first.disks[0].mount_point, "/");
-
-    let t1 = t0 + Duration::from_secs(2);
-    let second = parse_remote_probe_output(sample_2, "10.0.0.1", &mut prev, t1);
-    // delta total = (1200+600+9200) - (1000+500+8500) = 1000, delta idle = 700 => 30%
-    assert!((second.cpu_usage_percent - 30.0).abs() < 0.1);
-    assert_eq!(second.net_rx_bytes_per_sec, 2048);
-    assert_eq!(second.net_tx_bytes_per_sec, 1024);
-    assert_eq!(second.top_processes[0].name, "nginx");
 }

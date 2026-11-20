@@ -4,6 +4,10 @@ use std::sync::Arc;
 
 use commands::AppState;
 use lighterm_core::LightermCore;
+use lighterm_plugin_history::HistoryPlugin;
+use lighterm_plugin_monitor::MonitorPlugin;
+use lighterm_plugin_sftp::SftpPlugin;
+use lighterm_plugin_snippets::SnippetsPlugin;
 
 #[cfg(target_os = "linux")]
 fn install_linux_gtk_log_filter() {
@@ -53,6 +57,14 @@ pub fn run() {
     install_linux_gtk_log_filter();
 
     let core = Arc::new(LightermCore::default_instance().expect("Failed to initialize Lighterm core"));
+    core.register_plugin(Arc::new(SftpPlugin::new()))
+        .expect("Failed to register SFTP plugin");
+    core.register_plugin(Arc::new(MonitorPlugin::new()))
+        .expect("Failed to register Monitor plugin");
+    core.register_plugin(Arc::new(SnippetsPlugin::new()))
+        .expect("Failed to register Snippets plugin");
+    core.register_plugin(Arc::new(HistoryPlugin::new()))
+        .expect("Failed to register History plugin");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -68,6 +80,10 @@ pub fn run() {
             commands::hosts_save,
             commands::hosts_delete,
             commands::hosts_test_connection,
+            commands::settings_get,
+            commands::settings_save,
+            commands::plugins_list,
+            commands::plugins_set_enabled,
             commands::sftp_canonicalize,
             commands::sftp_list_dir,
             commands::sftp_mkdir,
@@ -82,8 +98,6 @@ pub fn run() {
             commands::history_record,
             commands::history_delete,
             commands::history_clear,
-            commands::settings_get,
-            commands::settings_save,
             commands::monitor_get_stats,
         ])
         .run(tauri::generate_context!())

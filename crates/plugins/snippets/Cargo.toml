@@ -1,0 +1,15 @@
+[package]
+name = "lighterm-plugin-snippets"
+version = "0.1.0"
+edition = "2021"
+description = "Command snippets plugin for Lighterm"
+
+[dependencies]
+chrono = "0.4"
+lighterm-core = { path = "../../lighterm-core" }
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

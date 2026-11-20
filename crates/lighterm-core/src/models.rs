@@ -66,57 +66,12 @@ pub struct HostConfig {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SftpEntry {
-    pub name: String,
-    pub path: String,
-    pub is_dir: bool,
-    pub is_symlink: bool,
-    pub size: u64,
-    pub permissions: String,
-    pub mode: u32,
-    pub modified_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SftpTransferProgress {
-    pub transfer_id: String,
-    pub host_id: String,
-    pub file_name: String,
-    pub direction: String,
-    pub bytes_transferred: u64,
-    pub total_bytes: u64,
-    pub done: bool,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Snippet {
-    pub id: String,
-    pub title: String,
-    pub command: String,
-    pub category: String,
-    pub description: Option<String>,
-    pub auto_execute: bool,
-    pub updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryEntry {
-    pub id: String,
-    pub command: String,
-    pub session_kind: SessionKind,
-    pub host_label: String,
-    pub timestamp: i64,
-    pub count: u32,
-}
-
 fn default_toggle_monitor() -> String {
     "Ctrl+Shift+M".to_string()
+}
+
+fn default_open_plugins() -> String {
+    "Ctrl+Shift+X".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +88,8 @@ pub struct ShortcutMap {
     pub toggle_sftp: String,
     #[serde(default = "default_toggle_monitor")]
     pub toggle_monitor: String,
+    #[serde(default = "default_open_plugins")]
+    pub open_plugins: String,
     pub open_settings: String,
     pub next_tab: String,
     pub prev_tab: String,
@@ -151,6 +108,7 @@ impl Default for ShortcutMap {
             toggle_sidebar: "Ctrl+Shift+B".to_string(),
             toggle_sftp: "Ctrl+Shift+S".to_string(),
             toggle_monitor: default_toggle_monitor(),
+            open_plugins: default_open_plugins(),
             open_settings: "Ctrl+,".to_string(),
             next_tab: "Ctrl+Tab".to_string(),
             prev_tab: "Ctrl+Shift+Tab".to_string(),
@@ -201,45 +159,10 @@ pub struct ConnectionTestResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DiskStat {
+pub struct PluginInfo {
+    pub id: String,
     pub name: String,
-    pub mount_point: String,
-    pub fs_type: String,
-    pub total_bytes: u64,
-    pub used_bytes: u64,
-    pub usage_percent: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProcessStat {
-    pub pid: u32,
-    pub name: String,
-    pub cpu_percent: f32,
-    pub memory_bytes: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SystemStats {
-    pub source: SessionKind,
-    pub hostname: String,
-    pub os_name: String,
-    pub kernel_version: String,
-    pub arch: String,
-    pub uptime_secs: u64,
-    pub load_avg: [f64; 3],
-    pub cpu_usage_percent: f32,
-    pub cpu_cores: usize,
-    pub mem_total_bytes: u64,
-    pub mem_used_bytes: u64,
-    pub swap_total_bytes: u64,
-    pub swap_used_bytes: u64,
-    pub net_rx_bytes_per_sec: u64,
-    pub net_tx_bytes_per_sec: u64,
-    pub net_total_rx_bytes: u64,
-    pub net_total_tx_bytes: u64,
-    pub disks: Vec<DiskStat>,
-    pub top_processes: Vec<ProcessStat>,
-    pub sampled_at: i64,
+    pub description: String,
+    pub enabled: bool,
+    pub dependencies: Vec<String>,
 }

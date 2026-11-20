@@ -1,0 +1,838 @@
+import { create } from 'zustand';
+import type {
+  AppSettings,
+  ConnectionTestResult,
+  HostConfig,
+  SessionInfo,
+  SessionKind,
+  SessionStatus,
+} from '../types';
+import { base64ToBytes, utf8ToBase64 } from '../utils/base64';
+import { DEFAULT_SHORTCUTS } from '../utils/shortcuts';
+import { invokeTauri, isTauriRuntime, listenTauri, makeUuid, readLs, writeLs } from './ipc';
+
+const LS_HOSTS = 'lighterm:hosts';
+const LS_SETTINGS = 'lighterm:settings';
+const MAX_HISTORY_BYTES = 256 * 1024;
+const MAX_EARLY_CHUNKS = 256;
+
+export interface ShellSessionRecord {
+  info: SessionInfo;
+  hostId?: string;
+  hostConfig?: HostConfig;
+}
+
+export interface ShellStoreState {
+  initialized: boolean;
+  sessions: Record<string, ShellSessionRecord>;
+  sessionOrder: string[];
+  activeSessionId: string | null;
+  sessionStatuses: Record<string, SessionStatus>;
+  sessionMessages: Record<string, string | undefined>;
+  sessionDimensions: Record<string, { cols: number; rows: number }>;
+  hosts: HostConfig[];
+  settings: AppSettings;
+
+  hostModalOpen: boolean;
+  editingHost: HostConfig | null;
+  settingsModalOpen: boolean;
+  commandPaletteOpen: boolean;
+  pluginManagerOpen: boolean;
+  statusBannerError: string | null;
+}
+
+export function createDefaultSettings(): AppSettings {
+  return {
+    themeId: 'tokyo-night',
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Noto Sans Mono CJK SC', monospace",
+    fontSize: 14,
+    lineHeight: 1.35,
+    cursorStyle: 'bar',
+    cursorBlink: true,
+    scrollback: 10000,
+    backgroundOpacity: 0.96,
+    copyOnSelect: false,
+    shortcuts: { ...DEFAULT_SHORTCUTS },
+  };
+}
+
+export function parseQuickSshInput(raw: string): {
+  username: string;
+  host: string;
+  port: number;
+} | null {
+  let text = raw.trim();
+  if (!text) return null;
+  if (text.startsWith('ssh ')) {
+    text = text.slice(4).trim();
+  }
+
+  let port = 22;
+  const portFlagMatch = text.match(/(?:^|\s)-p\s+(\d+)(?:\s|$)/);
+  if (portFlagMatch) {
+    port = Number(portFlagMatch[1]) || 22;
+    text = text.replace(portFlagMatch[0], ' ').trim();
+  }
+
+  const target = text.split(/\s+/)[0] ?? '';
+  if (!target.includes('@')) {
+    return null;
+  }
+
+  const [username, hostPart] = target.split('@', 2);
+  if (!username || !hostPart) return null;
+
+  const colonIdx = hostPart.lastIndexOf(':');
+  if (colonIdx > 0 && /^\d+$/.test(hostPart.slice(colonIdx + 1))) {
+    const parsedPort = Number(hostPart.slice(colonIdx + 1));
+    return {
+      username,
+      host: hostPart.slice(0, colonIdx),
+      port: parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 22,
+    };
+  }
+
+  return { username, host: hostPart, port };
+}
+
+export const useShellStore = create<ShellStoreState>(() => ({
+  initialized: false,
+  sessions: {},
+  sessionOrder: [],
+  activeSessionId: null,
+  sessionStatuses: {},
+  sessionMessages: {},
+  sessionDimensions: {},
+  hosts: [],
+  settings: createDefaultSettings(),
+
+  hostModalOpen: false,
+  editingHost: null,
+  settingsModalOpen: false,
+  commandPaletteOpen: false,
+  pluginManagerOpen: false,
+  statusBannerError: null,
+}));
+
+type OutputSubscriber = (dataBase64: string) => void;
+type SessionCreatedListener = (
+  session: ShellSessionRecord,
+  meta?: Record<string, unknown>,
+) => void;
+type SessionClosedListener = (sessionId: string) => void;
+type SessionInputListener = (sessionId: string, text: string) => void;
+type SessionOutputListener = (sessionId: string, bytes: Uint8Array) => void;
+type ActiveSessionListener = (sessionId: string | null) => void;
+
+interface MockSession {
+  info: SessionInfo;
+  lineBuffer: string;
+  cwd: string;
+  prompt: string;
+}
+
+const mockSessions = new Map<string, MockSession>();
+const outputSubscribers = new Map<string, Set<OutputSubscriber>>();
+const earlyOutputBuffer = new Map<string, string[]>();
+const everMountedSessions = new Set<string>();
+const historyChunks = new Map<string, { chunks: string[]; totalBytes: number }>();
+
+const sessionCreatedListeners = new Set<SessionCreatedListener>();
+const sessionClosedListeners = new Set<SessionClosedListener>();
+const sessionInputListeners = new Set<SessionInputListener>();
+const sessionOutputListeners = new Set<SessionOutputListener>();
+const activeSessionListeners = new Set<ActiveSessionListener>();
+
+let tauriListenersPromise: Promise<void> | null = null;
+let initPromise: Promise<void> | null = null;
+
+function appendHistoryChunk(sessionId: string, dataBase64: string, byteLen: number): void {
+  let entry = historyChunks.get(sessionId);
+  if (!entry) {
+    entry = { chunks: [], totalBytes: 0 };
+    historyChunks.set(sessionId, entry);
+  }
+  entry.chunks.push(dataBase64);
+  entry.totalBytes += byteLen;
+
+  while (entry.totalBytes > MAX_HISTORY_BYTES && entry.chunks.length > 1) {
+    const removed = entry.chunks.shift();
+    if (removed) {
+      try {
+        entry.totalBytes -= base64ToBytes(removed).length;
+      } catch {
+        entry.totalBytes = Math.max(0, entry.totalBytes - removed.length);
+      }
+    }
+  }
+}
+
+function dispatchOutput(sessionId: string, dataBase64: string): void {
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToBytes(dataBase64);
+  } catch {
+    bytes = new Uint8Array(0);
+  }
+
+  appendHistoryChunk(sessionId, dataBase64, bytes.length);
+
+  sessionOutputListeners.forEach((cb) => cb(sessionId, bytes));
+
+  const subs = outputSubscribers.get(sessionId);
+  if (subs && subs.size > 0) {
+    subs.forEach((cb) => cb(dataBase64));
+    return;
+  }
+
+  if (!everMountedSessions.has(sessionId)) {
+    const existing = earlyOutputBuffer.get(sessionId) ?? [];
+    existing.push(dataBase64);
+    if (existing.length > MAX_EARLY_CHUNKS) {
+      existing.splice(0, existing.length - MAX_EARLY_CHUNKS);
+    }
+    earlyOutputBuffer.set(sessionId, existing);
+  }
+}
+
+function dispatchStatus(sessionId: string, status: SessionStatus, message?: string): void {
+  useShellStore.setState((state) => ({
+    sessionStatuses: { ...state.sessionStatuses, [sessionId]: status },
+    sessionMessages: { ...state.sessionMessages, [sessionId]: message },
+  }));
+}
+
+function dispatchExit(sessionId: string): void {
+  useShellStore.setState((state) => ({
+    sessionStatuses: { ...state.sessionStatuses, [sessionId]: 'disconnected' },
+  }));
+}
+
+async function ensureTauriListeners(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  if (tauriListenersPromise) return tauriListenersPromise;
+
+  tauriListenersPromise = (async () => {
+    await Promise.all([
+      listenTauri<{ sessionId: string; dataBase64: string }>('terminal:output', (payload) => {
+        dispatchOutput(payload.sessionId, payload.dataBase64);
+      }),
+      listenTauri<{ sessionId: string; status: SessionStatus; message?: string }>(
+        'terminal:status',
+        (payload) => {
+          dispatchStatus(payload.sessionId, payload.status, payload.message);
+        },
+      ),
+      listenTauri<{ sessionId: string; exitCode?: number }>('terminal:exit', (payload) => {
+        dispatchExit(payload.sessionId);
+      }),
+    ]);
+  })();
+
+  return tauriListenersPromise;
+}
+
+function handleMockCommand(session: MockSession, rawCmd: string): void {
+  const cmd = rawCmd.trim();
+  const emit = (txt: string) => dispatchOutput(session.info.id, utf8ToBase64(txt));
+
+  if (!cmd) {
+    emit(`\r\n${session.prompt}`);
+    return;
+  }
+
+  let out = '';
+  if (cmd === 'help') {
+    out =
+      'Lighterm Demo Shell Commands: help, pwd, ls, whoami, uname -a, clear\r\n' +
+      '(Run inside Tauri desktop app for full native PTY, SSH2, and plugin backend.)';
+  } else if (cmd === 'pwd') {
+    out = session.cwd;
+  } else if (cmd === 'ls' || cmd.startsWith('ls ')) {
+    out = 'Cargo.toml  README.md  crates/  package.json  src/  src-tauri/';
+  } else if (cmd === 'whoami') {
+    out = session.info.kind === 'ssh' ? session.info.title.split('@')[0] || 'deploy' : 'lighterm';
+  } else if (cmd.startsWith('uname')) {
+    out = 'Linux lighterm 6.12.0 x86_64 GNU/Linux';
+  } else if (cmd === 'clear') {
+    emit(`\x1b[2J\x1b[H${session.prompt}`);
+    return;
+  } else if (cmd.startsWith('echo ')) {
+    out = cmd.slice(5);
+  } else {
+    out = `Executed: ${cmd}`;
+  }
+
+  emit(`\r\n${out}\r\n${session.prompt}`);
+}
+
+export class ShellService {
+  async initialize(): Promise<void> {
+    if (useShellStore.getState().initialized) return;
+    if (initPromise) return initPromise;
+
+    initPromise = (async () => {
+      await ensureTauriListeners();
+      const [settings, hosts] = await Promise.all([
+        this.loadSettings().catch(() => createDefaultSettings()),
+        this.listHosts().catch(() => [] as HostConfig[]),
+      ]);
+      const defaults = createDefaultSettings();
+      useShellStore.setState({
+        settings: {
+          ...defaults,
+          ...settings,
+          shortcuts: { ...defaults.shortcuts, ...settings.shortcuts },
+        },
+        hosts,
+        initialized: true,
+      });
+    })();
+
+    return initPromise;
+  }
+
+  async createLocalSession(params?: {
+    cols?: number;
+    rows?: number;
+    cwd?: string;
+    shell?: string;
+    title?: string;
+    meta?: Record<string, unknown>;
+  }): Promise<SessionInfo | null> {
+    const cols = params?.cols ?? 100;
+    const rows = params?.rows ?? 30;
+    const count = useShellStore.getState().sessionOrder.length + 1;
+    const title = params?.title ?? `Terminal ${count}`;
+
+    try {
+      let info: SessionInfo;
+      if (isTauriRuntime()) {
+        await ensureTauriListeners();
+        info = await invokeTauri<SessionInfo>('terminal_create_local', {
+          cols,
+          rows,
+          cwd: params?.cwd,
+          shell: params?.shell,
+          title,
+        });
+      } else {
+        const id = makeUuid();
+        info = {
+          id,
+          kind: 'local',
+          title,
+          hostId: null,
+          cols,
+          rows,
+          status: 'connected',
+          createdAt: Date.now(),
+        };
+      }
+
+      const record: ShellSessionRecord = { info };
+      useShellStore.setState((state) => ({
+        sessions: { ...state.sessions, [info.id]: record },
+        sessionOrder: [...state.sessionOrder, info.id],
+        activeSessionId: info.id,
+        sessionStatuses: { ...state.sessionStatuses, [info.id]: info.status },
+        sessionDimensions: { ...state.sessionDimensions, [info.id]: { cols, rows } },
+        statusBannerError: null,
+      }));
+
+      sessionCreatedListeners.forEach((cb) => cb(record, params?.meta));
+      activeSessionListeners.forEach((cb) => cb(info.id));
+
+      if (!isTauriRuntime()) {
+        const prompt = '\x1b[36mlighterm\x1b[0m:\x1b[34m~\x1b[0m$ ';
+        mockSessions.set(info.id, { info, lineBuffer: '', cwd: '/home/lighterm', prompt });
+        dispatchStatus(info.id, 'connected');
+        dispatchOutput(
+          info.id,
+          utf8ToBase64(
+            `\x1b[1;34mLighterm Preview Terminal\x1b[0m (Browser mode — type \x1b[33mhelp\x1b[0m)\r\n${prompt}`,
+          ),
+        );
+      }
+
+      return info;
+    } catch (err) {
+      this.setBannerError(err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
+  async createSshSession(params: {
+    hostId?: string;
+    hostConfig?: HostConfig;
+    cols?: number;
+    rows?: number;
+    meta?: Record<string, unknown>;
+  }): Promise<SessionInfo | null> {
+    const cols = params.cols ?? 100;
+    const rows = params.rows ?? 30;
+    try {
+      let info: SessionInfo;
+      let resolvedHost = params.hostConfig;
+      if (!resolvedHost && params.hostId) {
+        resolvedHost = useShellStore.getState().hosts.find((h) => h.id === params.hostId);
+      }
+
+      if (isTauriRuntime()) {
+        await ensureTauriListeners();
+        info = await invokeTauri<SessionInfo>('terminal_create_ssh', {
+          hostId: params.hostId,
+          hostConfig: params.hostConfig,
+          cols,
+          rows,
+        });
+      } else {
+        const title = resolvedHost
+          ? resolvedHost.name || `${resolvedHost.username}@${resolvedHost.host}`
+          : 'SSH Session';
+        info = {
+          id: makeUuid(),
+          kind: 'ssh',
+          title,
+          hostId: resolvedHost?.id ?? params.hostId ?? null,
+          cols,
+          rows,
+          status: 'connected',
+          createdAt: Date.now(),
+        };
+      }
+
+      const record: ShellSessionRecord = {
+        info,
+        hostId: resolvedHost?.id ?? params.hostId,
+        hostConfig: resolvedHost,
+      };
+      useShellStore.setState((state) => ({
+        sessions: { ...state.sessions, [info.id]: record },
+        sessionOrder: [...state.sessionOrder, info.id],
+        activeSessionId: info.id,
+        sessionStatuses: { ...state.sessionStatuses, [info.id]: info.status },
+        sessionDimensions: { ...state.sessionDimensions, [info.id]: { cols, rows } },
+        statusBannerError: null,
+      }));
+
+      sessionCreatedListeners.forEach((cb) => cb(record, params.meta));
+      activeSessionListeners.forEach((cb) => cb(info.id));
+
+      if (!isTauriRuntime()) {
+        const user = resolvedHost?.username ?? 'deploy';
+        const hostLabel = resolvedHost?.host ?? 'remote';
+        const prompt = `\x1b[32m${user}@${hostLabel}\x1b[0m:\x1b[34m~\x1b[0m$ `;
+        mockSessions.set(info.id, { info, lineBuffer: '', cwd: `/home/${user}`, prompt });
+        dispatchStatus(info.id, 'connected');
+        dispatchOutput(
+          info.id,
+          utf8ToBase64(
+            `\x1b[1;32mConnected to ${user}@${hostLabel}:${resolvedHost?.port ?? 22}\x1b[0m\r\n${prompt}`,
+          ),
+        );
+      }
+
+      return info;
+    } catch (err) {
+      const message =
+        typeof err === 'object' && err !== null && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : String(err);
+      this.setBannerError(`SSH connection failed: ${message}`);
+      return null;
+    }
+  }
+
+  async quickConnectSsh(rawInput: string): Promise<SessionInfo | null> {
+    const trimmed = rawInput.trim();
+    if (!trimmed) return null;
+
+    const matchedHost = useShellStore
+      .getState()
+      .hosts.find(
+        (h) =>
+          h.name.toLowerCase() === trimmed.toLowerCase() ||
+          h.host.toLowerCase() === trimmed.toLowerCase(),
+      );
+    if (matchedHost) {
+      return this.createSshSession({ hostId: matchedHost.id, hostConfig: matchedHost });
+    }
+
+    const parsed = parseQuickSshInput(trimmed);
+    if (!parsed) {
+      this.setBannerError('Quick SSH format: user@host[:port] or ssh -p 2222 user@host');
+      return null;
+    }
+
+    const tempHost: HostConfig = {
+      id: makeUuid('quick'),
+      name: `${parsed.username}@${parsed.host}`,
+      group: 'Quick Connect',
+      host: parsed.host,
+      port: parsed.port,
+      username: parsed.username,
+      auth: { type: 'privateKey' },
+      updatedAt: Date.now(),
+    };
+    return this.createSshSession({ hostConfig: tempHost });
+  }
+
+  async writeSession(sessionId: string, dataBase64: string): Promise<void> {
+    let text = '';
+    try {
+      text = new TextDecoder().decode(base64ToBytes(dataBase64));
+    } catch {
+      text = '';
+    }
+    if (text) {
+      sessionInputListeners.forEach((cb) => cb(sessionId, text));
+    }
+
+    if (isTauriRuntime()) {
+      return invokeTauri<void>('terminal_write', { sessionId, dataBase64 });
+    }
+
+    const session = mockSessions.get(sessionId);
+    if (!session) return;
+
+    for (const ch of text) {
+      if (ch === '\r' || ch === '\n') {
+        const line = session.lineBuffer;
+        session.lineBuffer = '';
+        handleMockCommand(session, line);
+      } else if (ch === '\x7f' || ch === '\b') {
+        if (session.lineBuffer.length > 0) {
+          session.lineBuffer = session.lineBuffer.slice(0, -1);
+          dispatchOutput(sessionId, utf8ToBase64('\b \b'));
+        }
+      } else if (ch === '\x03') {
+        session.lineBuffer = '';
+        dispatchOutput(sessionId, utf8ToBase64(`^C\r\n${session.prompt}`));
+      } else if (ch.charCodeAt(0) >= 0x20) {
+        session.lineBuffer += ch;
+        dispatchOutput(sessionId, utf8ToBase64(ch));
+      }
+    }
+  }
+
+  async sendTextToActiveSession(text: string, appendNewline = false): Promise<void> {
+    const activeId = useShellStore.getState().activeSessionId;
+    if (!activeId) return;
+    const payload = appendNewline ? `${text}\n` : text;
+    await this.writeSession(activeId, utf8ToBase64(payload));
+  }
+
+  async resizeSession(sessionId: string, cols: number, rows: number): Promise<void> {
+    useShellStore.setState((state) => ({
+      sessionDimensions: { ...state.sessionDimensions, [sessionId]: { cols, rows } },
+    }));
+
+    if (isTauriRuntime()) {
+      return invokeTauri<void>('terminal_resize', { sessionId, cols, rows });
+    }
+    const s = mockSessions.get(sessionId);
+    if (s) {
+      s.info.cols = cols;
+      s.info.rows = rows;
+    }
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    earlyOutputBuffer.delete(sessionId);
+    historyChunks.delete(sessionId);
+    everMountedSessions.delete(sessionId);
+
+    if (isTauriRuntime()) {
+      await invokeTauri<void>('terminal_close', { sessionId }).catch(() => {});
+    } else {
+      mockSessions.delete(sessionId);
+    }
+
+    let nextActiveId: string | null = null;
+    useShellStore.setState((state) => {
+      const { [sessionId]: _removed, ...restSessions } = state.sessions;
+      const nextOrder = state.sessionOrder.filter((id) => id !== sessionId);
+      nextActiveId =
+        state.activeSessionId === sessionId
+          ? nextOrder[nextOrder.length - 1] ?? null
+          : state.activeSessionId;
+      return {
+        sessions: restSessions,
+        sessionOrder: nextOrder,
+        activeSessionId: nextActiveId,
+      };
+    });
+
+    sessionClosedListeners.forEach((cb) => cb(sessionId));
+    activeSessionListeners.forEach((cb) => cb(nextActiveId));
+  }
+
+  setActiveSession(sessionId: string | null): void {
+    const state = useShellStore.getState();
+    if (state.activeSessionId === sessionId) return;
+    if (sessionId && !state.sessions[sessionId]) return;
+    useShellStore.setState({ activeSessionId: sessionId });
+    activeSessionListeners.forEach((cb) => cb(sessionId));
+  }
+
+  getActiveSession(): ShellSessionRecord | null {
+    const state = useShellStore.getState();
+    if (!state.activeSessionId) return null;
+    return state.sessions[state.activeSessionId] ?? null;
+  }
+
+  getSession(sessionId: string): ShellSessionRecord | null {
+    return useShellStore.getState().sessions[sessionId] ?? null;
+  }
+
+  listSessions(): ShellSessionRecord[] {
+    const state = useShellStore.getState();
+    return state.sessionOrder
+      .map((id) => state.sessions[id])
+      .filter((s): s is ShellSessionRecord => Boolean(s));
+  }
+
+  /**
+   * Returns buffered output bytes for remounted viewports, with ConPTY `\x1b[6n` queries stripped
+   * so reparenting a terminal does not trigger duplicate CPR responses.
+   */
+  getReplayBytes(sessionId: string): Uint8Array[] {
+    const entry = historyChunks.get(sessionId);
+    if (!entry || entry.chunks.length === 0) return [];
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    const encoder = new TextEncoder();
+    const out: Uint8Array[] = [];
+    for (const b64 of entry.chunks) {
+      try {
+        const bytes = base64ToBytes(b64);
+        const text = decoder.decode(bytes);
+        if (text.includes('\x1b[6n')) {
+          const cleaned = text.replace(/\x1b\[6n/g, '');
+          if (cleaned.length > 0) out.push(encoder.encode(cleaned));
+        } else {
+          out.push(bytes);
+        }
+      } catch {
+        // Ignore malformed chunks
+      }
+    }
+    return out;
+  }
+
+  subscribeSessionOutput(
+    sessionId: string,
+    cb: OutputSubscriber,
+  ): { unsubscribe: () => void; hadEarlyBuffer: boolean } {
+    let subs = outputSubscribers.get(sessionId);
+    if (!subs) {
+      subs = new Set();
+      outputSubscribers.set(sessionId, subs);
+    }
+    subs.add(cb);
+
+    const firstMount = !everMountedSessions.has(sessionId);
+    everMountedSessions.add(sessionId);
+
+    const buffered = earlyOutputBuffer.get(sessionId);
+    let hadEarlyBuffer = false;
+    if (firstMount && buffered && buffered.length > 0) {
+      hadEarlyBuffer = true;
+      earlyOutputBuffer.delete(sessionId);
+      for (const chunk of buffered) {
+        cb(chunk);
+      }
+    }
+
+    return {
+      hadEarlyBuffer,
+      unsubscribe: () => {
+        const set = outputSubscribers.get(sessionId);
+        if (!set) return;
+        set.delete(cb);
+        if (set.size === 0) {
+          outputSubscribers.delete(sessionId);
+        }
+      },
+    };
+  }
+
+  onSessionCreated(cb: SessionCreatedListener): () => void {
+    sessionCreatedListeners.add(cb);
+    return () => sessionCreatedListeners.delete(cb);
+  }
+
+  onSessionClosed(cb: SessionClosedListener): () => void {
+    sessionClosedListeners.add(cb);
+    return () => sessionClosedListeners.delete(cb);
+  }
+
+  onSessionInput(cb: SessionInputListener): () => void {
+    sessionInputListeners.add(cb);
+    return () => sessionInputListeners.delete(cb);
+  }
+
+  onSessionOutput(cb: SessionOutputListener): () => void {
+    sessionOutputListeners.add(cb);
+    return () => sessionOutputListeners.delete(cb);
+  }
+
+  onActiveSessionChanged(cb: ActiveSessionListener): () => void {
+    activeSessionListeners.add(cb);
+    return () => activeSessionListeners.delete(cb);
+  }
+
+  // ---- Core Host Management ----
+
+  async listHosts(): Promise<HostConfig[]> {
+    const hosts = isTauriRuntime()
+      ? await invokeTauri<HostConfig[]>('hosts_list')
+      : readLs<HostConfig[]>(LS_HOSTS, () => []);
+    useShellStore.setState({ hosts });
+    return hosts;
+  }
+
+  async saveHost(host: HostConfig): Promise<HostConfig> {
+    let saved: HostConfig;
+    if (isTauriRuntime()) {
+      saved = await invokeTauri<HostConfig>('hosts_save', { host });
+    } else {
+      const hosts = readLs<HostConfig[]>(LS_HOSTS, () => []);
+      saved = {
+        ...host,
+        id: host.id.trim() ? host.id : makeUuid(),
+        updatedAt: Date.now(),
+      };
+      const idx = hosts.findIndex((h) => h.id === saved.id);
+      if (idx >= 0) hosts[idx] = saved;
+      else hosts.push(saved);
+      writeLs(LS_HOSTS, hosts);
+    }
+    const hosts = await this.listHosts();
+    useShellStore.setState({ hosts, hostModalOpen: false, editingHost: null });
+    return saved;
+  }
+
+  async deleteHost(id: string): Promise<void> {
+    if (isTauriRuntime()) {
+      await invokeTauri<void>('hosts_delete', { id });
+    } else {
+      const hosts = readLs<HostConfig[]>(LS_HOSTS, () => []).filter((h) => h.id !== id);
+      writeLs(LS_HOSTS, hosts);
+    }
+    await this.listHosts();
+  }
+
+  async testHostConnection(host: HostConfig): Promise<ConnectionTestResult> {
+    if (isTauriRuntime()) {
+      return invokeTauri<ConnectionTestResult>('hosts_test_connection', { host });
+    }
+    return {
+      success: Boolean(host.host.trim() && host.username.trim()),
+      latencyMs: 18,
+      message: host.host.trim()
+        ? `Preview check OK for ${host.username}@${host.host}:${host.port}`
+        : 'Host address cannot be empty',
+    };
+  }
+
+  // ---- Core Settings ----
+
+  async loadSettings(): Promise<AppSettings> {
+    if (isTauriRuntime()) {
+      return invokeTauri<AppSettings>('settings_get');
+    }
+    return readLs<AppSettings>(LS_SETTINGS, createDefaultSettings);
+  }
+
+  async updateSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
+    const current = useShellStore.getState().settings;
+    const merged: AppSettings = {
+      ...current,
+      ...partial,
+      shortcuts: {
+        ...current.shortcuts,
+        ...(partial.shortcuts ?? {}),
+      },
+    };
+    const saved = isTauriRuntime()
+      ? await invokeTauri<AppSettings>('settings_save', { settings: merged })
+      : (() => {
+          writeLs(LS_SETTINGS, merged);
+          return merged;
+        })();
+    useShellStore.setState({ settings: saved });
+    return saved;
+  }
+
+  // ---- Core Modals & Banner ----
+
+  openHostModal(host: HostConfig | null = null): void {
+    useShellStore.setState({ hostModalOpen: true, editingHost: host });
+  }
+
+  closeHostModal(): void {
+    useShellStore.setState({ hostModalOpen: false, editingHost: null });
+  }
+
+  setSettingsModalOpen(open: boolean): void {
+    useShellStore.setState({ settingsModalOpen: open });
+  }
+
+  setCommandPaletteOpen(open: boolean): void {
+    useShellStore.setState({ commandPaletteOpen: open });
+  }
+
+  setPluginManagerOpen(open: boolean): void {
+    useShellStore.setState({ pluginManagerOpen: open });
+  }
+
+  setBannerError(msg: string | null): void {
+    useShellStore.setState({ statusBannerError: msg });
+  }
+
+  clearBannerError(): void {
+    useShellStore.setState({ statusBannerError: null });
+  }
+
+  resetForTesting(): void {
+    initPromise = null;
+    mockSessions.clear();
+    outputSubscribers.clear();
+    earlyOutputBuffer.clear();
+    everMountedSessions.clear();
+    historyChunks.clear();
+    sessionCreatedListeners.clear();
+    sessionClosedListeners.clear();
+    sessionInputListeners.clear();
+    sessionOutputListeners.clear();
+    activeSessionListeners.clear();
+    useShellStore.setState({
+      initialized: false,
+      sessions: {},
+      sessionOrder: [],
+      activeSessionId: null,
+      sessionStatuses: {},
+      sessionMessages: {},
+      sessionDimensions: {},
+      hosts: [],
+      settings: createDefaultSettings(),
+      hostModalOpen: false,
+      editingHost: null,
+      settingsModalOpen: false,
+      commandPaletteOpen: false,
+      pluginManagerOpen: false,
+      statusBannerError: null,
+    });
+  }
+}
+
+export const shellService = new ShellService();
+
+export const formatSessionHostLabel = (session: ShellSessionRecord | null): string => {
+  if (!session) return 'Local';
+  return session.info.title;
+};
+
+export const getSessionKindLabel = (kind: SessionKind): string =>
+  kind === 'ssh' ? 'SSH' : 'Local';

@@ -12,9 +12,6 @@ pub enum CoreError {
     #[error("Authentication failed: {0}")]
     AuthFailed(String),
 
-    #[error("SFTP error: {0}")]
-    SftpError(String),
-
     #[error("Storage error: {0}")]
     StorageError(String),
 
@@ -23,6 +20,12 @@ pub enum CoreError {
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    #[error("Plugin disabled: {0}")]
+    PluginDisabled(String),
+
+    #[error("Plugin error: {0}")]
+    PluginError(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -39,10 +42,11 @@ impl CoreError {
             CoreError::PtyError(_) => "PTY_ERROR",
             CoreError::SshError(_) => "SSH_ERROR",
             CoreError::AuthFailed(_) => "AUTH_FAILED",
-            CoreError::SftpError(_) => "SFTP_ERROR",
             CoreError::StorageError(_) => "STORAGE_ERROR",
             CoreError::SessionNotFound(_) => "SESSION_NOT_FOUND",
             CoreError::InvalidInput(_) => "INVALID_INPUT",
+            CoreError::PluginDisabled(_) => "PLUGIN_DISABLED",
+            CoreError::PluginError(_) => "PLUGIN_ERROR",
         }
     }
 }

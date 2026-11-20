@@ -1,3 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/lighterm-core", "src-tauri"]
+members = [
+  "crates/lighterm-core",
+  "crates/plugins/sftp",
+  "crates/plugins/monitor",
+  "crates/plugins/snippets",
+  "crates/plugins/history",
+  "src-tauri",
+]

@@ -2347,6 +2347,10 @@ version = "0.1.0"
 dependencies = [
  "glib",
  "lighterm-core",
+ "lighterm-plugin-history",
+ "lighterm-plugin-monitor",
+ "lighterm-plugin-sftp",
+ "lighterm-plugin-snippets",
  "serde",
  "serde_json",
  "tauri",
@@ -2366,14 +2370,63 @@ dependencies = [
  "portable-pty",
  "rand",
  "russh",
- "russh-sftp",
  "serde",
  "serde_json",
- "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "lighterm-plugin-history"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "lighterm-core",
+ "parking_lot",
+ "serde",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "lighterm-plugin-monitor"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "lighterm-core",
+ "parking_lot",
+ "russh",
+ "serde",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "lighterm-plugin-sftp"
+version = "0.1.0"
+dependencies = [
+ "lighterm-core",
+ "parking_lot",
+ "russh-sftp",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "lighterm-plugin-snippets"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "lighterm-core",
+ "parking_lot",
+ "serde",
+ "tempfile",
  "uuid",
 ]
 

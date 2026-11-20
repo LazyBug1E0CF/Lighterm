@@ -1,29 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Code2, History, Search, Server, Terminal } from 'lucide-react';
-import { useAppStore } from '../../store/useAppStore';
+import { shellService, useShellStore } from '../../core/shellService';
+import { useCommands } from '../../harness/HarnessContext';
+import { layoutService } from '../../layout/layoutStore';
 
 interface PaletteItem {
   id: string;
-  group: 'Action' | 'SSH Host' | 'Snippet' | 'History';
+  group: string;
   label: string;
   subtitle?: string;
   run: () => Promise<void> | void;
 }
 
 export const CommandPaletteModal: React.FC = () => {
-  const open = useAppStore((s) => s.commandPaletteOpen);
-  const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen);
-  const hosts = useAppStore((s) => s.hosts);
-  const snippets = useAppStore((s) => s.snippets);
-  const history = useAppStore((s) => s.history);
-  const openLocalTab = useAppStore((s) => s.openLocalTab);
-  const openHostModal = useAppStore((s) => s.openHostModal);
-  const openSshTab = useAppStore((s) => s.openSshTab);
-  const splitActivePane = useAppStore((s) => s.splitActivePane);
-  const toggleSftpDrawer = useAppStore((s) => s.toggleSftpDrawer);
-  const toggleMonitorPanel = useAppStore((s) => s.toggleMonitorPanel);
-  const setSettingsModalOpen = useAppStore((s) => s.setSettingsModalOpen);
-  const sendTextToActivePane = useAppStore((s) => s.sendTextToActivePane);
+  const open = useShellStore((s) => s.commandPaletteOpen);
+  const hosts = useShellStore((s) => s.hosts);
+  const pluginCommands = useCommands();
 
   const [query, setQuery] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -36,48 +28,38 @@ export const CommandPaletteModal: React.FC = () => {
   }, [open]);
 
   const items = useMemo<PaletteItem[]>(() => {
-    const actions: PaletteItem[] = [
+    const coreActions: PaletteItem[] = [
       {
-        id: 'act-local',
-        group: 'Action',
-        label: 'New Local Terminal Tab',
-        run: () => openLocalTab(),
+        id: 'core-local',
+        group: 'Core',
+        label: 'New Local Shell Connection',
+        run: async () => {
+          await shellService.createLocalSession();
+        },
       },
       {
-        id: 'act-new-host',
-        group: 'Action',
+        id: 'core-new-host',
+        group: 'Core',
         label: 'Add New SSH Host',
-        run: () => openHostModal(null),
+        run: () => shellService.openHostModal(null),
       },
       {
-        id: 'act-split-h',
-        group: 'Action',
-        label: 'Split Active Pane Horizontally',
-        run: () => splitActivePane('horizontal'),
+        id: 'core-plugins',
+        group: 'Core',
+        label: 'Manage Plugins (Everything-is-a-Plugin)',
+        run: () => shellService.setPluginManagerOpen(true),
       },
       {
-        id: 'act-split-v',
-        group: 'Action',
-        label: 'Split Active Pane Vertically',
-        run: () => splitActivePane('vertical'),
+        id: 'core-reset-layout',
+        group: 'Core',
+        label: 'Reset Workspace Docked Layout',
+        run: () => layoutService.resetLayoutPreservingViewports(),
       },
       {
-        id: 'act-sftp',
-        group: 'Action',
-        label: 'Toggle SFTP File Browser',
-        run: () => toggleSftpDrawer(),
-      },
-      {
-        id: 'act-monitor',
-        group: 'Action',
-        label: 'Toggle System Status Panel',
-        run: () => toggleMonitorPanel(),
-      },
-      {
-        id: 'act-settings',
-        group: 'Action',
+        id: 'core-settings',
+        group: 'Core',
         label: 'Open Settings',
-        run: () => setSettingsModalOpen(true),
+        run: () => shellService.setSettingsModalOpen(true),
       },
     ];
 
@@ -86,28 +68,22 @@ export const CommandPaletteModal: React.FC = () => {
       group: 'SSH Host',
       label: `Connect: ${h.name || h.host}`,
       subtitle: `${h.username}@${h.host}:${h.port}`,
-      run: () => openSshTab(h),
+      run: async () => {
+        await shellService.createSshSession({ hostId: h.id, hostConfig: h });
+      },
     }));
 
-    const snippetItems: PaletteItem[] = snippets.map((s) => ({
-      id: `snip-${s.id}`,
-      group: 'Snippet',
-      label: s.title,
-      subtitle: s.command,
-      run: () => sendTextToActivePane(s.command, s.autoExecute),
+    const dynamicItems: PaletteItem[] = pluginCommands.map((cmd) => ({
+      id: `${cmd.pluginId}:${cmd.id}`,
+      group: cmd.group,
+      label: cmd.label,
+      subtitle: cmd.subtitle,
+      run: cmd.run,
     }));
 
-    const historyItems: PaletteItem[] = history.slice(0, 20).map((h) => ({
-      id: `hist-${h.id}`,
-      group: 'History',
-      label: h.command,
-      subtitle: h.hostLabel,
-      run: () => sendTextToActivePane(h.command, true),
-    }));
-
-    const all = [...actions, ...hostItems, ...snippetItems, ...historyItems];
+    const all = [...coreActions, ...hostItems, ...dynamicItems];
     const q = query.trim().toLowerCase();
-    if (!q) return all.slice(0, 30);
+    if (!q) return all.slice(0, 32);
     return all
       .filter(
         (item) =>
@@ -115,34 +91,21 @@ export const CommandPaletteModal: React.FC = () => {
           (item.subtitle?.toLowerCase().includes(q) ?? false) ||
           item.group.toLowerCase().includes(q),
       )
-      .slice(0, 30);
-  }, [
-    hosts,
-    snippets,
-    history,
-    query,
-    openLocalTab,
-    openHostModal,
-    splitActivePane,
-    toggleSftpDrawer,
-    toggleMonitorPanel,
-    setSettingsModalOpen,
-    openSshTab,
-    sendTextToActivePane,
-  ]);
+      .slice(0, 32);
+  }, [hosts, pluginCommands, query]);
 
   if (!open) return null;
 
   const executeItem = async (item?: PaletteItem) => {
     if (!item) return;
-    setCommandPaletteOpen(false);
+    shellService.setCommandPaletteOpen(false);
     await item.run();
   };
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/50 backdrop-blur-xs p-4"
-      onClick={() => setCommandPaletteOpen(false)}
+      onClick={() => shellService.setCommandPaletteOpen(false)}
     >
       <div
         role="dialog"
@@ -175,10 +138,10 @@ export const CommandPaletteModal: React.FC = () => {
                 e.preventDefault();
                 void executeItem(items[selectedIdx]);
               } else if (e.key === 'Escape') {
-                setCommandPaletteOpen(false);
+                shellService.setCommandPaletteOpen(false);
               }
             }}
-            placeholder="Search actions, SSH hosts, snippets, or command history..."
+            placeholder="Search core actions, plugin commands, SSH hosts, snippets, history..."
             className="flex-1 bg-transparent text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none"
           />
         </div>

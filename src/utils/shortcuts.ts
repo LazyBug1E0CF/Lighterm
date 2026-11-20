@@ -11,6 +11,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   toggleSidebar: 'Ctrl+Shift+B',
   toggleSftp: 'Ctrl+Shift+S',
   toggleMonitor: 'Ctrl+Shift+M',
+  openPlugins: 'Ctrl+Shift+X',
   openSettings: 'Ctrl+,',
   nextTab: 'Ctrl+Tab',
   prevTab: 'Ctrl+Shift+Tab',

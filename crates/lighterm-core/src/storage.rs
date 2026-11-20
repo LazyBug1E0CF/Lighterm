@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -9,7 +10,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
-use crate::models::{AppSettings, HistoryEntry, HostConfig, SessionKind, Snippet};
+use crate::models::{AppSettings, HostConfig};
 
 pub struct Storage {
     data_dir: PathBuf,
@@ -47,59 +48,6 @@ impl Storage {
     }
 
     fn ensure_defaults(&self) -> CoreResult<()> {
-        let snippets_path = self.file_path("snippets.json");
-        if !snippets_path.exists() {
-            let now = Utc::now().timestamp_millis();
-            let starters = vec![
-                Snippet {
-                    id: Uuid::new_v4().to_string(),
-                    title: "Disk Usage (Human)".to_string(),
-                    command: "df -h".to_string(),
-                    category: "System".to_string(),
-                    description: Some("Show mounted filesystem disk usage".to_string()),
-                    auto_execute: true,
-                    updated_at: now,
-                },
-                Snippet {
-                    id: Uuid::new_v4().to_string(),
-                    title: "Listening Ports".to_string(),
-                    command: "ss -tulpn".to_string(),
-                    category: "Network".to_string(),
-                    description: Some("List listening TCP/UDP sockets".to_string()),
-                    auto_execute: true,
-                    updated_at: now,
-                },
-                Snippet {
-                    id: Uuid::new_v4().to_string(),
-                    title: "Docker Containers".to_string(),
-                    command: "docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'".to_string(),
-                    category: "Docker".to_string(),
-                    description: Some("Compact running container status table".to_string()),
-                    auto_execute: true,
-                    updated_at: now,
-                },
-                Snippet {
-                    id: Uuid::new_v4().to_string(),
-                    title: "Follow Service Logs".to_string(),
-                    command: "journalctl -u {{service}} -f -n 100".to_string(),
-                    category: "System".to_string(),
-                    description: Some("Tail systemd logs for a service".to_string()),
-                    auto_execute: false,
-                    updated_at: now,
-                },
-                Snippet {
-                    id: Uuid::new_v4().to_string(),
-                    title: "Find Large Files".to_string(),
-                    command: "du -ah {{path}} | sort -rh | head -n 20".to_string(),
-                    category: "Files".to_string(),
-                    description: Some("Top 20 largest files/folders under path".to_string()),
-                    auto_execute: false,
-                    updated_at: now,
-                },
-            ];
-            self.write_json_atomic("snippets.json", &starters, false)?;
-        }
-
         let settings_path = self.file_path("settings.json");
         if !settings_path.exists() {
             self.write_json_atomic("settings.json", &AppSettings::default(), false)?;
@@ -158,6 +106,40 @@ impl Storage {
         })
     }
 
+    // ---- Generic Plugin Storage ----
+
+    pub fn has_plugin_file(&self, name: &str) -> bool {
+        let _guard = self.lock.lock();
+        self.file_path(name).exists()
+    }
+
+    pub fn read_plugin_json<T: DeserializeOwned + Default>(&self, name: &str) -> CoreResult<T> {
+        let _guard = self.lock.lock();
+        self.read_json_or_default(name)
+    }
+
+    pub fn write_plugin_json<T: Serialize>(
+        &self,
+        name: &str,
+        value: &T,
+        restricted: bool,
+    ) -> CoreResult<()> {
+        let _guard = self.lock.lock();
+        self.write_json_atomic(name, value, restricted)
+    }
+
+    // ---- Plugin States ----
+
+    pub fn get_plugin_states(&self) -> CoreResult<HashMap<String, bool>> {
+        let _guard = self.lock.lock();
+        self.read_json_or_default("plugins.json")
+    }
+
+    pub fn save_plugin_states(&self, states: &HashMap<String, bool>) -> CoreResult<()> {
+        let _guard = self.lock.lock();
+        self.write_json_atomic("plugins.json", states, false)
+    }
+
     // ---- Hosts ----
 
     pub fn list_hosts(&self) -> CoreResult<Vec<HostConfig>> {
@@ -192,113 +174,6 @@ impl Storage {
         let mut hosts: Vec<HostConfig> = self.read_json_or_default("hosts.json")?;
         hosts.retain(|h| h.id != id);
         self.write_json_atomic("hosts.json", &hosts, true)
-    }
-
-    // ---- Snippets ----
-
-    pub fn list_snippets(&self) -> CoreResult<Vec<Snippet>> {
-        let _guard = self.lock.lock();
-        self.read_json_or_default("snippets.json")
-    }
-
-    pub fn save_snippet(&self, mut snippet: Snippet) -> CoreResult<Snippet> {
-        let _guard = self.lock.lock();
-        let mut snippets: Vec<Snippet> = self.read_json_or_default("snippets.json")?;
-        if snippet.id.trim().is_empty() {
-            snippet.id = Uuid::new_v4().to_string();
-        }
-        snippet.updated_at = Utc::now().timestamp_millis();
-
-        if let Some(existing) = snippets.iter_mut().find(|s| s.id == snippet.id) {
-            *existing = snippet.clone();
-        } else {
-            snippets.push(snippet.clone());
-        }
-        self.write_json_atomic("snippets.json", &snippets, false)?;
-        Ok(snippet)
-    }
-
-    pub fn delete_snippet(&self, id: &str) -> CoreResult<()> {
-        let _guard = self.lock.lock();
-        let mut snippets: Vec<Snippet> = self.read_json_or_default("snippets.json")?;
-        snippets.retain(|s| s.id != id);
-        self.write_json_atomic("snippets.json", &snippets, false)
-    }
-
-    // ---- History ----
-
-    pub fn list_history(&self, query: Option<&str>, limit: Option<usize>) -> CoreResult<Vec<HistoryEntry>> {
-        let _guard = self.lock.lock();
-        let mut entries: Vec<HistoryEntry> = self.read_json_or_default("history.json")?;
-        entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-        if let Some(q) = query.map(str::trim).filter(|s| !s.is_empty()) {
-            let lower = q.to_lowercase();
-            entries.retain(|e| {
-                e.command.to_lowercase().contains(&lower)
-                    || e.host_label.to_lowercase().contains(&lower)
-            });
-        }
-
-        if let Some(max) = limit {
-            entries.truncate(max);
-        }
-        Ok(entries)
-    }
-
-    pub fn record_history(
-        &self,
-        command: String,
-        session_kind: SessionKind,
-        host_label: String,
-    ) -> CoreResult<Option<HistoryEntry>> {
-        let trimmed = command.trim().to_string();
-        if trimmed.is_empty() {
-            return Ok(None);
-        }
-
-        let _guard = self.lock.lock();
-        let mut entries: Vec<HistoryEntry> = self.read_json_or_default("history.json")?;
-        let now = Utc::now().timestamp_millis();
-
-        let saved = if let Some(existing) = entries.iter_mut().find(|e| e.command == trimmed) {
-            existing.timestamp = now;
-            existing.count = existing.count.saturating_add(1);
-            existing.session_kind = session_kind;
-            existing.host_label = host_label;
-            existing.clone()
-        } else {
-            let entry = HistoryEntry {
-                id: Uuid::new_v4().to_string(),
-                command: trimmed,
-                session_kind,
-                host_label,
-                timestamp: now,
-                count: 1,
-            };
-            entries.push(entry.clone());
-            entry
-        };
-
-        entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        if entries.len() > 1000 {
-            entries.truncate(1000);
-        }
-        self.write_json_atomic("history.json", &entries, false)?;
-        Ok(Some(saved))
-    }
-
-    pub fn delete_history(&self, id: &str) -> CoreResult<()> {
-        let _guard = self.lock.lock();
-        let mut entries: Vec<HistoryEntry> = self.read_json_or_default("history.json")?;
-        entries.retain(|e| e.id != id);
-        self.write_json_atomic("history.json", &entries, false)
-    }
-
-    pub fn clear_history(&self) -> CoreResult<()> {
-        let _guard = self.lock.lock();
-        let empty: Vec<HistoryEntry> = Vec::new();
-        self.write_json_atomic("history.json", &empty, false)
     }
 
     // ---- Settings ----

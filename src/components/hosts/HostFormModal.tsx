@@ -1,18 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, FolderSearch, Loader2, X, XCircle } from 'lucide-react';
-import { pickOpenFile } from '../../services/backend';
-import { useAppStore } from '../../store/useAppStore';
+import { pickOpenFile } from '../../core/ipc';
+import { shellService, useShellStore } from '../../core/shellService';
 import type { ConnectionTestResult, HostConfig } from '../../types';
 
 const COLOR_SWATCHES = ['#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff', '#e0af68', '#f7768e'];
 
 export const HostFormModal: React.FC = () => {
-  const hostModalOpen = useAppStore((s) => s.hostModalOpen);
-  const editingHost = useAppStore((s) => s.editingHost);
-  const closeHostModal = useAppStore((s) => s.closeHostModal);
-  const saveHost = useAppStore((s) => s.saveHost);
-  const openSshTab = useAppStore((s) => s.openSshTab);
-  const testHostConnection = useAppStore((s) => s.testHostConnection);
+  const hostModalOpen = useShellStore((s) => s.hostModalOpen);
+  const editingHost = useShellStore((s) => s.editingHost);
 
   const [name, setName] = useState('');
   const [group, setGroup] = useState('Production');
@@ -106,7 +102,7 @@ export const HostFormModal: React.FC = () => {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await testHostConnection(buildConfig());
+      const res = await shellService.testHostConnection(buildConfig());
       setTestResult(res);
     } finally {
       setTesting(false);
@@ -117,9 +113,9 @@ export const HostFormModal: React.FC = () => {
     if (!host.trim() || !username.trim()) return;
     setSaving(true);
     try {
-      const saved = await saveHost(buildConfig());
+      const saved = await shellService.saveHost(buildConfig());
       if (connectAfter) {
-        await openSshTab(saved);
+        await shellService.createSshSession({ hostId: saved.id, hostConfig: saved });
       }
     } finally {
       setSaving(false);
@@ -129,7 +125,7 @@ export const HostFormModal: React.FC = () => {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
-      onClick={closeHostModal}
+      onClick={() => shellService.closeHostModal()}
     >
       <div
         role="dialog"
@@ -147,7 +143,7 @@ export const HostFormModal: React.FC = () => {
           </h2>
           <button
             type="button"
-            onClick={closeHostModal}
+            onClick={() => shellService.closeHostModal()}
             aria-label="Close Host Modal"
             className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
           >
@@ -213,7 +209,6 @@ export const HostFormModal: React.FC = () => {
             </label>
           </div>
 
-          {/* Auth Method Toggle */}
           <div>
             <span className="text-[var(--text-muted)] block mb-1">Authentication</span>
             <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">

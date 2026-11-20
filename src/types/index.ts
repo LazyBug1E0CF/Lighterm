@@ -89,6 +89,7 @@ export interface ShortcutMap {
   toggleSidebar: string;
   toggleSftp: string;
   toggleMonitor: string;
+  openPlugins: string;
   openSettings: string;
   nextTab: string;
   prevTab: string;
@@ -111,6 +112,14 @@ export interface ConnectionTestResult {
   success: boolean;
   latencyMs: number;
   message: string;
+}
+
+export interface BackendPluginInfo {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  dependencies: string[];
 }
 
 export interface DiskStat {
@@ -153,34 +162,6 @@ export interface SystemStats {
 }
 
 export type SplitDirection = 'horizontal' | 'vertical';
-
-export interface PaneLeaf {
-  type: 'leaf';
-  id: string;
-  sessionId: string;
-  kind: SessionKind;
-  hostId?: string;
-  hostConfig?: HostConfig;
-  title: string;
-}
-
-export interface PaneSplit {
-  type: 'split';
-  id: string;
-  direction: SplitDirection;
-  ratio: number;
-  first: PaneNode;
-  second: PaneNode;
-}
-
-export type PaneNode = PaneLeaf | PaneSplit;
-
-export interface TerminalTab {
-  id: string;
-  title: string;
-  root: PaneNode;
-  activePaneId: string;
-}
 
 export interface ThemePreset {
   id: string;

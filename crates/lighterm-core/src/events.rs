@@ -1,10 +1,10 @@
-use crate::models::{SessionStatus, SftpTransferProgress};
+use crate::models::SessionStatus;
 
 pub trait CoreEventSink: Send + Sync + 'static {
     fn on_terminal_output(&self, session_id: &str, data_base64: String);
     fn on_terminal_exit(&self, session_id: &str, exit_code: Option<u32>);
     fn on_terminal_status(&self, session_id: &str, status: SessionStatus, message: Option<String>);
-    fn on_sftp_progress(&self, progress: SftpTransferProgress);
+    fn on_plugin_event(&self, _event: &str, _payload: serde_json::Value) {}
 }
 
 pub struct NoopEventSink;
@@ -19,5 +19,4 @@ impl CoreEventSink for NoopEventSink {
         _message: Option<String>,
     ) {
     }
-    fn on_sftp_progress(&self, _progress: SftpTransferProgress) {}
 }
