@@ -22,7 +22,7 @@ export class TerminalPluginService {
       ? layoutState.viewports[layoutState.activeViewportId]
       : undefined;
 
-    const terminalVps = this.layout.findViewportsByType(TERMINAL_VIEWPORT_TYPE);
+    const terminalVps = this.layout.findWorkspaceViewportsByType(TERMINAL_VIEWPORT_TYPE);
     const targetVp =
       activeVp?.typeId === TERMINAL_VIEWPORT_TYPE ? activeVp : terminalVps[terminalVps.length - 1];
 
@@ -76,7 +76,7 @@ export class TerminalPluginService {
   }
 
   cycleTerminalViewport(delta: 1 | -1): void {
-    const terminalVps = this.layout.findViewportsByType(TERMINAL_VIEWPORT_TYPE);
+    const terminalVps = this.layout.findWorkspaceViewportsByType(TERMINAL_VIEWPORT_TYPE);
     if (terminalVps.length <= 1) return;
     const activeId = useLayoutStore.getState().activeViewportId;
     const idx = terminalVps.findIndex((v) => v.id === activeId);

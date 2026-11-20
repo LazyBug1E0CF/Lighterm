@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  buildPresetDockTree,
   collectGroups,
   dockViewportAtEdge,
   dockViewportInGroup,
@@ -128,5 +129,135 @@ describe('Universal DockTree & LayoutService', () => {
     layoutService.dockToEdge(vpB.id, 'bottom');
     expect(useLayoutStore.getState().floating).toHaveLength(0);
     expect(layoutService.getViewportLocation(vpB.id)).toBe('docked');
+  });
+
+  it('builds balanced tab, vsp, hsp, and grid preset dock trees', () => {
+    // Tab preset merges all viewports into one group and respects preferredActiveId
+    const tabRoot = buildPresetDockTree(['t1', 't2', 't3'], 'tab', 't2');
+    expect(tabRoot?.type).toBe('group');
+    expect(collectGroups(tabRoot)[0].viewportIds).toEqual(['t1', 't2', 't3']);
+    expect(collectGroups(tabRoot)[0].activeViewportId).toBe('t2');
+
+    // VSP preset arranges 3 panes side by side with equal column ratios (1/3, then 1/2)
+    const vspRoot = buildPresetDockTree(['t1', 't2', 't3'], 'vsp');
+    expect(vspRoot?.type).toBe('split');
+    if (vspRoot?.type === 'split') {
+      expect(vspRoot.direction).toBe('horizontal');
+      expect(vspRoot.ratio).toBeCloseTo(1 / 3, 4);
+      expect(vspRoot.second.type).toBe('split');
+      if (vspRoot.second.type === 'split') {
+        expect(vspRoot.second.direction).toBe('horizontal');
+        expect(vspRoot.second.ratio).toBeCloseTo(0.5, 4);
+      }
+    }
+    expect(collectGroups(vspRoot).map((g) => g.viewportIds[0])).toEqual(['t1', 't2', 't3']);
+
+    // HSP preset arranges 3 panes top to bottom with equal row ratios
+    const hspRoot = buildPresetDockTree(['t1', 't2', 't3'], 'hsp');
+    expect(hspRoot?.type).toBe('split');
+    if (hspRoot?.type === 'split') {
+      expect(hspRoot.direction).toBe('vertical');
+      expect(hspRoot.ratio).toBeCloseTo(1 / 3, 4);
+      expect(hspRoot.second.type).toBe('split');
+      if (hspRoot.second.type === 'split') {
+        expect(hspRoot.second.direction).toBe('vertical');
+        expect(hspRoot.second.ratio).toBeCloseTo(0.5, 4);
+      }
+    }
+
+    // Grid preset builds 2x2 for 4 panes and 2 rows x 3 cols for 5 panes
+    const grid2x2 = buildPresetDockTree(['t1', 't2', 't3', 't4'], 'grid');
+    expect(grid2x2?.type).toBe('split');
+    if (grid2x2?.type === 'split') {
+      expect(grid2x2.direction).toBe('vertical');
+      expect(grid2x2.ratio).toBeCloseTo(0.5, 4);
+      expect(grid2x2.first.type).toBe('split');
+      expect(grid2x2.second.type).toBe('split');
+      if (grid2x2.first.type === 'split') {
+        expect(grid2x2.first.direction).toBe('horizontal');
+      }
+    }
+    expect(collectGroups(grid2x2)).toHaveLength(4);
+
+    const grid2x3 = buildPresetDockTree(['t1', 't2', 't3', 't4', 't5'], 'grid');
+    expect(grid2x3?.type).toBe('split');
+    if (grid2x3?.type === 'split') {
+      expect(grid2x3.direction).toBe('vertical');
+      expect(collectGroups(grid2x3.first)).toHaveLength(3);
+      expect(collectGroups(grid2x3.second)).toHaveLength(2);
+    }
+  });
+
+  it('manages multi-workspace lifecycle, scopes new viewports, and preserves non-shell panels during quick layout arrange', () => {
+    const t1 = layoutService.openViewport({
+      typeId: 'terminal.viewport',
+      pluginId: 'lighterm.terminal',
+      title: 'Terminal 1',
+      preferredDock: 'center',
+    });
+    const t2 = layoutService.openViewport({
+      typeId: 'terminal.viewport',
+      pluginId: 'lighterm.terminal',
+      title: 'Terminal 2',
+      preferredDock: 'center',
+    });
+    const sftp = layoutService.openViewport({
+      typeId: 'sftp.browser',
+      pluginId: 'lighterm.sftp',
+      title: 'SFTP Browser',
+      preferredDock: 'bottom',
+    });
+
+    const ws1Id = useLayoutStore.getState().activeWorkspaceId;
+    expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(2);
+
+    // Arrange Workspace 1 shells into VSP -> 2 terminal groups + preserved SFTP group
+    layoutService.arrangeWorkspaceShells('vsp');
+    expect(useLayoutStore.getState().activeLayoutPreset).toBe('vsp');
+    const groupsAfterVsp = collectGroups(useLayoutStore.getState().dockRoot);
+    expect(groupsAfterVsp).toHaveLength(3);
+    expect(findGroupContainingViewport(useLayoutStore.getState().dockRoot, sftp.id)).not.toBeNull();
+
+    // Opening another shell while activeLayoutPreset === 'vsp' automatically includes it in VSP
+    const t3 = layoutService.openViewport({
+      typeId: 'terminal.viewport',
+      pluginId: 'lighterm.terminal',
+      title: 'Terminal 3',
+      preferredDock: 'center',
+    });
+    expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(3);
+    expect(collectGroups(useLayoutStore.getState().dockRoot)).toHaveLength(4);
+
+    // Create Workspace 2 -> becomes active with empty center, leaving Workspace 1 isolated
+    const ws2 = layoutService.createWorkspace();
+    expect(ws2.name).toBe('Workspace 2');
+    expect(useLayoutStore.getState().activeWorkspaceId).toBe(ws2.id);
+    expect(useLayoutStore.getState().dockRoot).toBeNull();
+
+    layoutService.renameWorkspace(ws2.id, 'Prod Cluster');
+    layoutService.renameWorkspace(ws2.id, '   ');
+    expect(useLayoutStore.getState().workspaces.find((w) => w.id === ws2.id)?.name).toBe(
+      'Prod Cluster',
+    );
+
+    const ws2Term = layoutService.openViewport({
+      typeId: 'terminal.viewport',
+      pluginId: 'lighterm.terminal',
+      title: 'Terminal 4',
+      preferredDock: 'center',
+    });
+    expect(layoutService.getWorkspaceViewportIds(ws2.id)).toEqual([ws2Term.id]);
+    expect(layoutService.getWorkspaceViewportIds(ws1Id)).toEqual([t1.id, t2.id, t3.id, sftp.id]);
+
+    // Switching back to Workspace 1 restores VSP preset and 4 viewports
+    layoutService.selectWorkspace(ws1Id);
+    expect(useLayoutStore.getState().activeLayoutPreset).toBe('vsp');
+    expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(3);
+
+    // Closing Workspace 2 removes ws2Term from store without touching Workspace 1
+    layoutService.closeWorkspace(ws2.id);
+    expect(useLayoutStore.getState().workspaces).toHaveLength(1);
+    expect(useLayoutStore.getState().viewports[ws2Term.id]).toBeUndefined();
+    expect(useLayoutStore.getState().viewports[t1.id]).toBeDefined();
   });
 });

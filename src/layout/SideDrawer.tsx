@@ -12,6 +12,7 @@ import {
 import { shellService } from '../core/shellService';
 import { useViewportDescriptors } from '../harness/HarnessContext';
 import type { ViewportDescriptor } from '../harness/types';
+import { animateViewportReveal } from './layoutAnimator';
 import { layoutService, useLayoutStore } from './layoutStore';
 import type { DrawerSide } from './types';
 import { ViewportPositionMenu } from './ViewportPositionMenu';
@@ -29,6 +30,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const drawerContentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -148,12 +150,21 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
           <button
             key={vp.id}
             type="button"
+            data-flip-tab-id={vp.id}
             onPointerDown={(e) => {
               if (e.button === 0) {
                 layoutService.startDrag(vp.id, 'drawer', e.clientX, e.clientY);
               }
             }}
-            onClick={() => layoutService.selectDrawerViewport(side, vp.id)}
+            onClick={() => {
+              const wasOpenOnOther = drawer.open && activeVpId !== vp.id;
+              layoutService.selectDrawerViewport(side, vp.id);
+              if (wasOpenOnOther) {
+                requestAnimationFrame(() =>
+                  animateViewportReveal(drawerContentRef.current, vp.id),
+                );
+              }
+            }}
             title={`${vp.title} (Click to toggle / Drag to move)`}
             aria-label={`Switch to ${vp.title}`}
             className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
@@ -284,6 +295,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
       <div
         data-drawer-side={side}
         data-drop-drawer={side}
+        data-flip-id={activeVp.id}
         onMouseDown={() => layoutService.setActiveViewport(activeVp.id)}
         style={{
           width: drawer.width,
@@ -354,6 +366,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
         {/* Rendered Drawer Viewports */}
         <div
+          ref={drawerContentRef}
           className={`flex-1 flex flex-col min-h-0 overflow-hidden ${
             isDraggingAny ? 'pointer-events-none' : ''
           }`}

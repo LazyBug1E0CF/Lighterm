@@ -63,7 +63,7 @@ export const ViewportPositionMenu: React.FC<ViewportPositionMenuProps> = ({ view
           role="menu"
           aria-label="Viewport Position Options"
           onClick={(e) => e.stopPropagation()}
-          className="absolute right-0 top-full mt-1 z-50 w-48 py-1 rounded-lg border shadow-xl text-xs"
+          className="lighterm-pop-enter absolute right-0 top-full mt-1 z-50 w-48 py-1 rounded-lg border shadow-xl text-xs"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             borderColor: 'var(--border-subtle)',

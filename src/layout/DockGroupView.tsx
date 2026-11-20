@@ -1,13 +1,21 @@
-import React from 'react';
-import { GripVertical, Layers, PictureInPicture2, X } from 'lucide-react';
-import { useViewportDescriptors } from '../harness/HarnessContext';
+import React, { useRef } from 'react';
+import { GripVertical, Layers, PictureInPicture2, Search, X } from 'lucide-react';
+import { useShellStore } from '../core/shellService';
+import { useHarness, useViewportDescriptors } from '../harness/HarnessContext';
+import {
+  TERMINAL_VIEWPORT_TYPE,
+  type TerminalPluginService,
+} from '../plugins/terminal/terminalService';
+import { animateViewportReveal } from './layoutAnimator';
 import { layoutService, useLayoutStore } from './layoutStore';
+import { NewShellButton, QuickShellLayoutButtons } from './QuickShellLayoutBar';
 import type { DockGroupNode, DockZone } from './types';
 import { ViewportPositionMenu } from './ViewportPositionMenu';
 
 interface DockGroupViewProps {
   group: DockGroupNode;
   showCompass: boolean;
+  showWorkspaceControls?: boolean;
 }
 
 const COMPASS_ZONES: {
@@ -22,11 +30,20 @@ const COMPASS_ZONES: {
   { zone: 'bottom', label: 'Bottom', posClass: 'bottom-1 left-1/2 -translate-x-1/2' },
 ];
 
-export const DockGroupView: React.FC<DockGroupViewProps> = ({ group, showCompass }) => {
+export const DockGroupView: React.FC<DockGroupViewProps> = ({
+  group,
+  showCompass,
+  showWorkspaceControls = false,
+}) => {
   const viewports = useLayoutStore((s) => s.viewports);
   const globalActiveId = useLayoutStore((s) => s.activeViewportId);
   const dragState = useLayoutStore((s) => s.dragState);
+  const sessions = useShellStore((s) => s.sessions);
+  const sessionStatuses = useShellStore((s) => s.sessionStatuses);
   const descriptors = useViewportDescriptors();
+  const harness = useHarness();
+  const termService = harness.getService<TerminalPluginService>('terminal:service');
+  const contentHostRef = useRef<HTMLDivElement | null>(null);
 
   const activeVp = viewports[group.activeViewportId] ?? viewports[group.viewportIds[0]];
   const isGroupFocused = activeVp ? globalActiveId === activeVp.id : false;
@@ -43,6 +60,7 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({ group, showCompass
   return (
     <div
       data-group-container={group.id}
+      data-flip-id={activeVp?.id}
       onMouseDown={() => {
         if (activeVp) layoutService.setActiveViewport(activeVp.id);
       }}
@@ -67,13 +85,35 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({ group, showCompass
             const Icon = desc.icon;
             const isTabActive = vp.id === activeVp?.id;
 
+            let dotColor: string | null = null;
+            if (vp.typeId === TERMINAL_VIEWPORT_TYPE) {
+              const sid = String(vp.params?.sessionId ?? '');
+              const status = sessionStatuses[sid] ?? sessions[sid]?.info.status ?? 'connected';
+              dotColor =
+                status === 'connected'
+                  ? 'var(--success)'
+                  : status === 'connecting'
+                    ? 'var(--warning)'
+                    : status === 'error'
+                      ? 'var(--danger)'
+                      : 'var(--text-muted)';
+            }
+
             return (
               <div
                 key={vp.id}
                 role="tab"
                 aria-selected={isTabActive}
+                data-flip-tab-id={vp.id}
                 onPointerDown={(e) => startTabDrag(e, vp.id)}
-                onClick={() => layoutService.selectGroupTab(group.id, vp.id)}
+                onClick={() => {
+                  layoutService.selectGroupTab(group.id, vp.id);
+                  if (!isTabActive) {
+                    requestAnimationFrame(() =>
+                      animateViewportReveal(contentHostRef.current, vp.id),
+                    );
+                  }
+                }}
                 className={`group flex items-center gap-1.5 h-6 px-2 rounded text-xs cursor-grab active:cursor-grabbing shrink-0 max-w-[190px] border transition-colors ${
                   isTabActive
                     ? 'bg-[var(--bg-elevated)] border-[var(--accent)]/40 text-[var(--text-primary)] font-medium'
@@ -81,6 +121,12 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({ group, showCompass
                 }`}
               >
                 <GripVertical className="w-3 h-3 opacity-40 group-hover:opacity-90 shrink-0" />
+                {dotColor && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: dotColor }}
+                  />
+                )}
                 <Icon className="w-3.5 h-3.5 shrink-0 text-[var(--accent)]" />
                 <span className="truncate">{vp.title}</span>
                 <button
@@ -98,27 +144,50 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({ group, showCompass
               </div>
             );
           })}
+
+          {showWorkspaceControls && <NewShellButton />}
         </div>
 
-        {activeVp && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              data-no-drag="true"
-              onClick={() => layoutService.floatViewport(activeVp.id)}
-              title="Float Viewport Window"
-              aria-label={`Float ${activeVp.title}`}
-              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-            >
-              <PictureInPicture2 className="w-3 h-3" />
-            </button>
-            <ViewportPositionMenu viewportId={activeVp.id} />
-          </div>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          {showWorkspaceControls && <QuickShellLayoutButtons />}
+
+          {activeVp && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              {activeVp.typeId === TERMINAL_VIEWPORT_TYPE && termService && (
+                <button
+                  type="button"
+                  data-no-drag="true"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    layoutService.setActiveViewport(activeVp.id);
+                    termService.triggerSearch();
+                  }}
+                  title="Find in Terminal (Ctrl+Shift+F)"
+                  aria-label="Find in terminal"
+                  className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+                >
+                  <Search className="w-3 h-3" />
+                </button>
+              )}
+              <button
+                type="button"
+                data-no-drag="true"
+                onClick={() => layoutService.floatViewport(activeVp.id)}
+                title="Float Viewport Window"
+                aria-label={`Float ${activeVp.title}`}
+                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+              >
+                <PictureInPicture2 className="w-3 h-3" />
+              </button>
+              <ViewportPositionMenu viewportId={activeVp.id} />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Viewport Content Host */}
       <div
+        ref={contentHostRef}
         className={`flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden ${
           isDraggingAny ? 'pointer-events-none' : ''
         }`}
@@ -153,7 +222,7 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({ group, showCompass
       {isDraggingAny && showCompass && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/25 pointer-events-none">
           <div
-            className="relative w-36 h-36 rounded-xl border border-[var(--border-subtle)] shadow-2xl pointer-events-auto"
+            className="lighterm-pop-enter relative w-36 h-36 rounded-xl border border-[var(--border-subtle)] shadow-2xl pointer-events-auto"
             style={{ backgroundColor: 'var(--bg-elevated)' }}
           >
             {COMPASS_ZONES.map((item) => {

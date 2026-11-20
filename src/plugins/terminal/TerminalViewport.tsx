@@ -12,7 +12,6 @@ import {
   Copy,
   PictureInPicture2,
   Rows2,
-  Search,
   Trash2,
 } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
@@ -32,7 +31,6 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
   const harness = useHarness();
   const sessionId = String(viewport.params?.sessionId ?? '');
   const settings = useShellStore((s) => s.settings);
-  const status = useShellStore((s) => s.sessionStatuses[sessionId] ?? 'connected');
   const statusMsg = useShellStore((s) => s.sessionMessages[sessionId]);
   const searchSignal = useTerminalPluginStore((s) => s.searchSignal);
 
@@ -300,72 +298,19 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
       className="relative flex-1 flex flex-col min-w-0 min-h-0"
       style={{ backgroundColor: 'transparent' }}
     >
-      {/* Terminal Quick Action Bar */}
-      <div
-        className="h-6 px-2 flex items-center justify-between text-[11px] border-b shrink-0 select-none"
-        style={{
-          backgroundColor: 'var(--bg-surface)',
-          borderColor: 'var(--border-subtle)',
-        }}
-      >
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span
-            className="w-1.5 h-1.5 rounded-full shrink-0"
-            style={{
-              backgroundColor:
-                status === 'connected'
-                  ? 'var(--success)'
-                  : status === 'error'
-                    ? 'var(--danger)'
-                    : status === 'connecting'
-                      ? 'var(--warning)'
-                      : 'var(--text-muted)',
-            }}
-          />
-          <span className="truncate text-[var(--text-muted)]">{viewport.title}</span>
-          {statusMsg && (
-            <span className="truncate text-[10px] text-[var(--danger)]">{statusMsg}</span>
-          )}
+      {statusMsg && (
+        <div
+          className="px-2.5 py-1 flex items-center text-[11px] border-b shrink-0 select-none text-[var(--danger)] bg-[var(--danger)]/10"
+          style={{ borderColor: 'var(--border-subtle)' }}
+        >
+          <span className="truncate">{statusMsg}</span>
         </div>
-
-        <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              setSearchOpen((v) => !v);
-              requestAnimationFrame(() => searchInputRef.current?.focus());
-            }}
-            title="Find (Ctrl+Shift+F)"
-            aria-label="Find in terminal"
-            className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          >
-            <Search className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void termService?.splitActive('horizontal')}
-            title="Split Horizontally"
-            aria-label="Split pane horizontally"
-            className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          >
-            <Columns2 className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void termService?.splitActive('vertical')}
-            title="Split Vertically"
-            aria-label="Split pane vertically"
-            className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          >
-            <Rows2 className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Floating Search Bar */}
       {searchOpen && (
         <div
-          className="absolute top-7 right-3 z-20 flex items-center gap-1 p-1.5 rounded-lg border shadow-lg text-xs"
+          className="absolute top-2 right-3 z-20 flex items-center gap-1 p-1.5 rounded-lg border shadow-lg text-xs"
           style={{
             backgroundColor: 'var(--bg-elevated)',
             borderColor: 'var(--border-subtle)',

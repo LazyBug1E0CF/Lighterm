@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { App } from '../App';
 import { useShellStore } from '../core/shellService';
 import { harnessKernel } from '../harness/HarnessKernel';
-import { findGroupContainingViewport } from '../layout/dockTree';
+import { collectGroups, findGroupContainingViewport } from '../layout/dockTree';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import { resetLightermHarnessForTesting } from '../plugins';
 import { MONITOR_VIEWPORT_TYPE } from '../plugins/monitor';
@@ -36,7 +36,13 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     expect(within(leftDrawerAside).getByLabelText('Switch to Command History')).toBeTruthy();
     expect(within(rightDrawerAside).getByLabelText('Switch to System Status')).toBeTruthy();
 
-    // Open a second local terminal session and split horizontally
+    // Verify upper Workspaces tab strip and lower + Shell / Quick Layouts bar
+    const workspacesTablist = screen.getByRole('tablist', { name: 'Workspaces' });
+    const ws1Tab = within(workspacesTablist).getByRole('tab', { name: /Workspace 1/i });
+    expect(ws1Tab.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getAllByLabelText('New Local Terminal')).toHaveLength(1);
+
+    // Open a second local terminal session and split horizontally in Workspace 1
     fireEvent.click(screen.getByLabelText('New Local Terminal'));
     await waitFor(() => {
       expect(useShellStore.getState().sessionOrder.length).toBeGreaterThanOrEqual(2);
@@ -44,7 +50,41 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     fireEvent.click(screen.getByLabelText('Split Horizontally'));
     await waitFor(() => {
       expect(useShellStore.getState().sessionOrder.length).toBeGreaterThanOrEqual(3);
+      expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(3);
     });
+
+    // Multi-group mode switches controls cleanly to WorkspaceShellToolbar without duplicates
+    expect(screen.getByLabelText('Workspace Shell Toolbar')).toBeTruthy();
+    expect(screen.getAllByLabelText('New Local Terminal')).toHaveLength(1);
+
+    // Switch through Quick Shell Layout presets (Grid -> VSP -> HSP -> Tab)
+    fireEvent.click(screen.getByLabelText('Layout Grid'));
+    expect(useLayoutStore.getState().activeLayoutPreset).toBe('grid');
+    expect(collectGroups(useLayoutStore.getState().dockRoot)).toHaveLength(3);
+
+    fireEvent.click(screen.getByLabelText('Layout VSP'));
+    expect(useLayoutStore.getState().activeLayoutPreset).toBe('vsp');
+    expect(collectGroups(useLayoutStore.getState().dockRoot)).toHaveLength(3);
+
+    fireEvent.click(screen.getByLabelText('Layout HSP'));
+    expect(useLayoutStore.getState().activeLayoutPreset).toBe('hsp');
+    expect(collectGroups(useLayoutStore.getState().dockRoot)).toHaveLength(3);
+
+    fireEvent.click(screen.getByLabelText('Layout Tab'));
+    expect(useLayoutStore.getState().activeLayoutPreset).toBe('tab');
+    expect(collectGroups(useLayoutStore.getState().dockRoot)).toHaveLength(1);
+
+    // Create Workspace 2 via upper bar -> gets its own shell; switching back preserves Workspace 1
+    fireEvent.click(screen.getByLabelText('New Workspace'));
+    const ws2Tab = await within(workspacesTablist).findByRole('tab', { name: /Workspace 2/i });
+    expect(ws2Tab.getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => {
+      expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
+    });
+
+    fireEvent.click(ws1Tab);
+    expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(3);
+    expect(useLayoutStore.getState().activeLayoutPreset).toBe('tab');
 
     // Add and save an SSH host inside Left Drawer's Hosts viewport
     fireEvent.click(screen.getByLabelText('New SSH Host'));

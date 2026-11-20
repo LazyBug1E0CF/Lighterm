@@ -4,6 +4,17 @@ import type { SplitDirection } from '../types';
 export type DrawerSide = 'left' | 'right';
 export type DockEdge = 'left' | 'right' | 'top' | 'bottom';
 export type DockZone = 'center' | DockEdge;
+export type QuickShellLayoutPreset = 'tab' | 'vsp' | 'hsp' | 'grid';
+
+export interface WorkspaceState {
+  id: string;
+  name: string;
+  dockRoot: DockNode | null;
+  floating: FloatingViewportItem[];
+  activeViewportId: string | null;
+  maximizedViewportId: string | null;
+  layoutPreset: QuickShellLayoutPreset | null;
+}
 
 export interface DrawerState {
   open: boolean;

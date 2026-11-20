@@ -92,6 +92,7 @@ export const FloatingViewportWindow: React.FC<{ item: FloatingViewportItem }> = 
       role="region"
       aria-label={`Floating ${viewport.title}`}
       data-floating-viewport={viewport.id}
+      data-flip-id={viewport.id}
       onMouseDown={() => layoutService.setActiveViewport(viewport.id)}
       style={{
         left: item.x,

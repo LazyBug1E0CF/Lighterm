@@ -48,7 +48,9 @@ export const terminalPlugin: PluginDefinition = {
         .findViewportsByType(TERMINAL_VIEWPORT_TYPE)
         .find((vp) => String(vp.params?.sessionId ?? '') === sessionId);
       if (existing) {
-        layout.setActiveViewport(existing.id);
+        if (layout.getWorkspaceViewportIds().includes(existing.id)) {
+          layout.setActiveViewport(existing.id);
+        }
         return;
       }
 
@@ -214,6 +216,30 @@ export const terminalPlugin: PluginDefinition = {
       group: 'Action',
       label: 'Find in Terminal',
       run: () => service.triggerSearch(),
+    });
+    ctx.registerCommand({
+      id: 'terminal:layout-tab',
+      group: 'Layout',
+      label: 'Layout: Tab',
+      run: () => layout.arrangeWorkspaceShells('tab'),
+    });
+    ctx.registerCommand({
+      id: 'terminal:layout-vsp',
+      group: 'Layout',
+      label: 'Layout: Vertical Split (VSP)',
+      run: () => layout.arrangeWorkspaceShells('vsp'),
+    });
+    ctx.registerCommand({
+      id: 'terminal:layout-hsp',
+      group: 'Layout',
+      label: 'Layout: Horizontal Split (HSP)',
+      run: () => layout.arrangeWorkspaceShells('hsp'),
+    });
+    ctx.registerCommand({
+      id: 'terminal:layout-grid',
+      group: 'Layout',
+      label: 'Layout: Grid',
+      run: () => layout.arrangeWorkspaceShells('grid'),
     });
 
     const onKeyDown = (e: KeyboardEvent) => {

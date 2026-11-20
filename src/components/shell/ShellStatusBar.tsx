@@ -1,7 +1,8 @@
 import React from 'react';
-import { Puzzle, Server, Terminal } from 'lucide-react';
+import { Layers, Puzzle, Server, Terminal } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
 import { usePluginStatuses, useSlotItems } from '../../harness/HarnessContext';
+import { useLayoutStore } from '../../layout/layoutStore';
 import { getThemePreset } from '../../themes/presets';
 
 export const ShellStatusBar: React.FC = () => {
@@ -12,6 +13,10 @@ export const ShellStatusBar: React.FC = () => {
   const sessionCount = useShellStore((s) => s.sessionOrder.length);
   const sessionStatuses = useShellStore((s) => s.sessionStatuses);
   const settings = useShellStore((s) => s.settings);
+  const workspaces = useLayoutStore((s) => s.workspaces);
+  const activeWorkspaceId = useLayoutStore((s) => s.activeWorkspaceId);
+  const activeWorkspaceName =
+    workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? 'Workspace 1';
 
   const leftSlots = useSlotItems('statusbar:left');
   const rightSlots = useSlotItems('statusbar:right');
@@ -32,6 +37,11 @@ export const ShellStatusBar: React.FC = () => {
       }}
     >
       <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-1 text-[var(--text-muted)] pr-2 border-r border-[var(--border-subtle)] shrink-0">
+          <Layers className="w-3 h-3 text-[var(--accent)]" />
+          <span className="truncate max-w-[120px]">{activeWorkspaceName}</span>
+        </div>
+
         <div className="flex items-center gap-1.5 text-[var(--text-primary)]">
           {activeSession?.info.kind === 'ssh' ? (
             <Server className="w-3 h-3 text-[var(--accent)]" />

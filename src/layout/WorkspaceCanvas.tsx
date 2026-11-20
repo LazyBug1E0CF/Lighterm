@@ -1,24 +1,38 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Minimize2, Plus } from 'lucide-react';
-import { shellService } from '../core/shellService';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Minimize2, Plus, Terminal } from 'lucide-react';
+import { shellService, useShellStore } from '../core/shellService';
 import { useViewportDescriptors } from '../harness/HarnessContext';
+import { TERMINAL_VIEWPORT_TYPE } from '../plugins/terminal/terminalService';
 import { DockGroupView } from './DockGroupView';
-import { pruneUnavailableViewports } from './dockTree';
+import { collectGroups, pruneUnavailableViewports } from './dockTree';
 import { FloatingViewportWindow } from './FloatingViewportWindow';
+import { getLatestLayoutSnapshot, playLayoutAnimation } from './layoutAnimator';
 import { layoutService, useLayoutStore } from './layoutStore';
+import { NewShellButton, QuickShellLayoutButtons } from './QuickShellLayoutBar';
 import { SideDrawer } from './SideDrawer';
 import type { DockEdge, DockNode, DockZone, DrawerSide, SnapTarget } from './types';
 
 interface DockSplitBranchProps {
   node: DockNode;
   hoveredGroupId: string | null;
+  showWorkspaceControls?: boolean;
 }
 
-const DockSplitBranch: React.FC<DockSplitBranchProps> = ({ node, hoveredGroupId }) => {
+const DockSplitBranch: React.FC<DockSplitBranchProps> = ({
+  node,
+  hoveredGroupId,
+  showWorkspaceControls = false,
+}) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   if (node.type === 'group') {
-    return <DockGroupView group={node} showCompass={hoveredGroupId === node.id} />;
+    return (
+      <DockGroupView
+        group={node}
+        showCompass={hoveredGroupId === node.id}
+        showWorkspaceControls={showWorkspaceControls}
+      />
+    );
   }
 
   const isHorizontal = node.direction === 'horizontal';
@@ -85,16 +99,102 @@ function previewStyleForSnap(snap: SnapTarget | null): React.CSSProperties | nul
   return null;
 }
 
+const WorkspaceShellToolbar: React.FC = () => {
+  const dockRoot = useLayoutStore((s) => s.dockRoot);
+  const floating = useLayoutStore((s) => s.floating);
+  const viewports = useLayoutStore((s) => s.viewports);
+  const activeViewportId = useLayoutStore((s) => s.activeViewportId);
+  const sessions = useShellStore((s) => s.sessions);
+  const sessionStatuses = useShellStore((s) => s.sessionStatuses);
+
+  const shellViewports = useMemo(() => {
+    const ids = new Set<string>();
+    for (const grp of collectGroups(dockRoot)) {
+      for (const vid of grp.viewportIds) ids.add(vid);
+    }
+    for (const item of floating) {
+      ids.add(item.viewportId);
+    }
+    return Array.from(ids)
+      .map((id) => viewports[id])
+      .filter((vp) => Boolean(vp && vp.typeId === TERMINAL_VIEWPORT_TYPE));
+  }, [dockRoot, floating, viewports]);
+
+  return (
+    <div
+      aria-label="Workspace Shell Toolbar"
+      className="lighterm-toolbar-enter h-8 px-2 flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] shrink-0 select-none"
+      style={{ backgroundColor: 'var(--bg-surface)' }}
+    >
+      <div className="flex-1 flex items-center gap-1 overflow-x-auto lighterm-scroll min-w-0">
+        {shellViewports.map((vp) => {
+          const sid = String(vp.params?.sessionId ?? '');
+          const status = sessionStatuses[sid] ?? sessions[sid]?.info.status ?? 'connected';
+          const isFocused = activeViewportId === vp.id;
+          const dotColor =
+            status === 'connected'
+              ? 'var(--success)'
+              : status === 'connecting'
+                ? 'var(--warning)'
+                : status === 'error'
+                  ? 'var(--danger)'
+                  : 'var(--text-muted)';
+
+          return (
+            <button
+              key={vp.id}
+              type="button"
+              data-flip-tab-id={vp.id}
+              onClick={() => {
+                layoutService.setActiveViewport(vp.id);
+                if (sid) shellService.setActiveSession(sid);
+              }}
+              className={`h-6 px-2 rounded text-xs flex items-center gap-1.5 shrink-0 max-w-[160px] border transition-colors ${
+                isFocused
+                  ? 'bg-[var(--bg-elevated)] border-[var(--accent)]/40 text-[var(--text-primary)] font-medium'
+                  : 'border-transparent text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]/60 hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: dotColor }}
+              />
+              <Terminal className="w-3 h-3 shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{vp.title}</span>
+            </button>
+          );
+        })}
+
+        <NewShellButton />
+      </div>
+
+      <QuickShellLayoutButtons />
+    </div>
+  );
+};
+
 export const WorkspaceCanvas: React.FC = () => {
   const dockRoot = useLayoutStore((s) => s.dockRoot);
   const floating = useLayoutStore((s) => s.floating);
   const viewports = useLayoutStore((s) => s.viewports);
   const maximizedViewportId = useLayoutStore((s) => s.maximizedViewportId);
   const dragState = useLayoutStore((s) => s.dragState);
+  const layoutTransitionSeq = useLayoutStore((s) => s.layoutTransitionSeq);
   const descriptors = useViewportDescriptors();
 
+  const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    if (layoutTransitionSeq <= 0) return;
+    playLayoutAnimation(
+      canvasRootRef.current,
+      workspaceRef.current,
+      getLatestLayoutSnapshot(),
+      useLayoutStore.getState().activeViewportId,
+    );
+  }, [layoutTransitionSeq]);
 
   const visibleDockRoot = useMemo(
     () =>
@@ -104,6 +204,8 @@ export const WorkspaceCanvas: React.FC = () => {
       }),
     [dockRoot, viewports, descriptors],
   );
+
+  const visibleGroups = useMemo(() => collectGroups(visibleDockRoot), [visibleDockRoot]);
 
   const visibleFloating = useMemo(
     () =>
@@ -213,102 +315,115 @@ export const WorkspaceCanvas: React.FC = () => {
   const maximizedVp = maximizedViewportId ? viewports[maximizedViewportId] : undefined;
   const maximizedDesc = maximizedVp ? descriptors[maximizedVp.typeId] : undefined;
   const MaxComponent = maximizedDesc?.component;
+  const singleGroupMode = !maximizedVp && visibleGroups.length === 1;
 
   const snapPreviewStyle = previewStyleForSnap(dragState?.active ? dragState.snapTarget : null);
 
   return (
-    <div className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden">
+    <div
+      ref={canvasRootRef}
+      className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden"
+    >
       <SideDrawer side="left" />
 
-      <div ref={workspaceRef} className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden">
-        {maximizedVp && MaxComponent ? (
-          <div className="flex-1 flex flex-col min-w-0 min-h-0">
-            <div
-              className="h-8 px-3 flex items-center justify-between border-b border-[var(--border-subtle)] text-xs shrink-0"
-              style={{ backgroundColor: 'var(--bg-elevated)' }}
-            >
-              <span className="font-medium text-[var(--text-primary)]">{maximizedVp.title}</span>
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+        {!maximizedVp && !singleGroupMode && <WorkspaceShellToolbar />}
+
+        <div ref={workspaceRef} className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden">
+          {maximizedVp && MaxComponent ? (
+            <div data-flip-id={maximizedVp.id} className="flex-1 flex flex-col min-w-0 min-h-0">
+              <div
+                className="h-8 px-3 flex items-center justify-between border-b border-[var(--border-subtle)] text-xs shrink-0"
+                style={{ backgroundColor: 'var(--bg-elevated)' }}
+              >
+                <span className="font-medium text-[var(--text-primary)]">{maximizedVp.title}</span>
+                <button
+                  type="button"
+                  onClick={() => layoutService.toggleMaximize(maximizedVp.id)}
+                  aria-label="Restore Maximized Viewport"
+                  className="px-2 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] flex items-center gap-1"
+                >
+                  <Minimize2 className="w-3 h-3" />
+                  Restore
+                </button>
+              </div>
+              <div className="flex-1 flex flex-col min-w-0 min-h-0">
+                <MaxComponent
+                  viewport={maximizedVp}
+                  isActive
+                  isFloating={false}
+                  onClose={() => layoutService.closeViewport(maximizedVp.id)}
+                />
+              </div>
+            </div>
+          ) : visibleDockRoot ? (
+            <DockSplitBranch
+              node={visibleDockRoot}
+              hoveredGroupId={hoveredGroupId}
+              showWorkspaceControls={singleGroupMode}
+            />
+          ) : visibleFloating.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)]">
+              <p>
+                No central viewports open. Create a shell or drag any drawer/floating viewport here.
+              </p>
               <button
                 type="button"
-                onClick={() => layoutService.toggleMaximize(maximizedVp.id)}
-                aria-label="Restore Maximized Viewport"
-                className="px-2 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] flex items-center gap-1"
+                aria-label="Create First Local Shell"
+                onClick={() => void shellService.createLocalSession()}
+                className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
               >
-                <Minimize2 className="w-3 h-3" />
-                Restore
+                <Plus className="w-3.5 h-3.5" />
+                New Local Shell
               </button>
             </div>
-            <div className="flex-1 flex flex-col min-w-0 min-h-0">
-              <MaxComponent
-                viewport={maximizedVp}
-                isActive
-                isFloating={false}
-                onClose={() => layoutService.closeViewport(maximizedVp.id)}
-              />
-            </div>
-          </div>
-        ) : visibleDockRoot ? (
-          <DockSplitBranch node={visibleDockRoot} hoveredGroupId={hoveredGroupId} />
-        ) : visibleFloating.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)]">
-            <p>
-              No central viewports open. Create a shell or drag any drawer/floating viewport here.
-            </p>
-            <button
-              type="button"
-              onClick={() => void shellService.createLocalSession()}
-              className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New Local Shell
-            </button>
-          </div>
-        ) : (
-          <div className="flex-1" />
-        )}
+          ) : (
+            <div className="flex-1" />
+          )}
 
-        {/* Free-Floating Viewports Layer */}
-        {!maximizedVp &&
-          visibleFloating.map((item) => (
-            <FloatingViewportWindow key={item.viewportId} item={item} />
-          ))}
+          {/* Free-Floating Viewports Layer */}
+          {!maximizedVp &&
+            visibleFloating.map((item) => (
+              <FloatingViewportWindow key={item.viewportId} item={item} />
+            ))}
 
-        {/* Outer Edge Snap Zones & Translucent Snap Preview while Dragging */}
-        {dragState?.active && (
-          <>
-            {(['left', 'right', 'top', 'bottom'] as DockEdge[]).map((edge) => {
-              const active =
-                dragState.snapTarget?.kind === 'edge' && dragState.snapTarget.edge === edge;
-              const pos =
-                edge === 'left'
-                  ? 'left-0 top-6 bottom-6 w-6'
-                  : edge === 'right'
-                    ? 'right-0 top-6 bottom-6 w-6'
-                    : edge === 'top'
-                      ? 'top-0 left-6 right-6 h-6'
-                      : 'bottom-0 left-6 right-6 h-6';
-              return (
+          {/* Outer Edge Snap Zones & Translucent Snap Preview while Dragging */}
+          {dragState?.active && (
+            <>
+              {(['left', 'right', 'top', 'bottom'] as DockEdge[]).map((edge) => {
+                const active =
+                  dragState.snapTarget?.kind === 'edge' && dragState.snapTarget.edge === edge;
+                const pos =
+                  edge === 'left'
+                    ? 'left-0 top-6 bottom-6 w-6'
+                    : edge === 'right'
+                      ? 'right-0 top-6 bottom-6 w-6'
+                      : edge === 'top'
+                        ? 'top-0 left-6 right-6 h-6'
+                        : 'bottom-0 left-6 right-6 h-6';
+                return (
+                  <div
+                    key={edge}
+                    data-drop-edge={edge}
+                    aria-label={`Snap Edge ${edge}`}
+                    className={`absolute z-40 ${pos} transition-colors ${
+                      active
+                        ? 'bg-[var(--accent)]/40 border-2 border-[var(--accent)]'
+                        : 'bg-[var(--accent)]/10 border border-dashed border-[var(--accent)]/40'
+                    }`}
+                  />
+                );
+              })}
+
+              {snapPreviewStyle && (
                 <div
-                  key={edge}
-                  data-drop-edge={edge}
-                  aria-label={`Snap Edge ${edge}`}
-                  className={`absolute z-40 ${pos} transition-colors ${
-                    active
-                      ? 'bg-[var(--accent)]/40 border-2 border-[var(--accent)]'
-                      : 'bg-[var(--accent)]/10 border border-dashed border-[var(--accent)]/40'
-                  }`}
+                  style={snapPreviewStyle}
+                  className="absolute z-30 pointer-events-none bg-[var(--accent)]/15 border-2 border-[var(--accent)] rounded-md transition-all"
                 />
-              );
-            })}
-
-            {snapPreviewStyle && (
-              <div
-                style={snapPreviewStyle}
-                className="absolute z-30 pointer-events-none bg-[var(--accent)]/15 border-2 border-[var(--accent)] rounded-md transition-all"
-              />
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       <SideDrawer side="right" />

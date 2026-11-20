@@ -1,5 +1,12 @@
 import { makeUuid } from '../core/ipc';
-import type { DockEdge, DockGroupNode, DockNode, DockZone } from './types';
+import type { SplitDirection } from '../types';
+import type {
+  DockEdge,
+  DockGroupNode,
+  DockNode,
+  DockZone,
+  QuickShellLayoutPreset,
+} from './types';
 
 export function collectGroups(node: DockNode | null): DockGroupNode[] {
   if (!node) return [];
@@ -300,4 +307,70 @@ export function pruneUnavailableViewports(
     first,
     second,
   };
+}
+
+/** Recursively nests equal-sized binary splits so N sibling nodes share equal space. */
+export function buildLinearSplitFromNodes(
+  nodes: DockNode[],
+  direction: SplitDirection,
+): DockNode | null {
+  if (nodes.length === 0) return null;
+  if (nodes.length === 1) return nodes[0];
+  const [first, ...rest] = nodes;
+  const second = buildLinearSplitFromNodes(rest, direction);
+  if (!second) return first;
+  const ratio = Math.max(0.1, Math.min(0.9, 1 / nodes.length));
+  return {
+    type: 'split',
+    id: makeUuid('split'),
+    direction,
+    ratio,
+    first,
+    second,
+  };
+}
+
+/** Builds a docked layout tree arranging the given viewport IDs in tab, vsp, hsp, or grid form. */
+export function buildPresetDockTree(
+  viewportIds: string[],
+  preset: QuickShellLayoutPreset,
+  preferredActiveId?: string | null,
+): DockNode | null {
+  if (viewportIds.length === 0) return null;
+
+  if (preset === 'tab' || viewportIds.length === 1) {
+    const activeViewportId =
+      preferredActiveId && viewportIds.includes(preferredActiveId)
+        ? preferredActiveId
+        : viewportIds[0];
+    return {
+      type: 'group',
+      id: makeUuid('grp'),
+      viewportIds: [...viewportIds],
+      activeViewportId,
+    };
+  }
+
+  if (preset === 'vsp') {
+    return buildLinearSplitFromNodes(
+      viewportIds.map((vid) => createGroup(vid)),
+      'horizontal',
+    );
+  }
+
+  if (preset === 'hsp') {
+    return buildLinearSplitFromNodes(
+      viewportIds.map((vid) => createGroup(vid)),
+      'vertical',
+    );
+  }
+
+  const cols = Math.ceil(Math.sqrt(viewportIds.length));
+  const rows: DockNode[] = [];
+  for (let i = 0; i < viewportIds.length; i += cols) {
+    const rowSlice = viewportIds.slice(i, i + cols).map((vid) => createGroup(vid));
+    const rowNode = buildLinearSplitFromNodes(rowSlice, 'horizontal');
+    if (rowNode) rows.push(rowNode);
+  }
+  return buildLinearSplitFromNodes(rows, 'vertical');
 }

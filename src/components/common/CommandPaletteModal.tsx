@@ -38,6 +38,15 @@ export const CommandPaletteModal: React.FC = () => {
         },
       },
       {
+        id: 'core-new-workspace',
+        group: 'Core',
+        label: 'New Workspace',
+        run: async () => {
+          layoutService.createWorkspace();
+          await shellService.createLocalSession();
+        },
+      },
+      {
         id: 'core-new-host',
         group: 'Core',
         label: 'Add New SSH Host',
