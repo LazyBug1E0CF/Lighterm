@@ -4,6 +4,8 @@ import {
   PanelLeftClose,
   PanelRightClose,
   PictureInPicture2,
+  Pin,
+  PinOff,
   Plus,
   Puzzle,
   Settings,
@@ -29,8 +31,11 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
   const descriptors = useViewportDescriptors();
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const asideRef = useRef<HTMLElement | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
+  const isResizingRef = useRef(false);
+  const prevActiveIdRef = useRef<string | null>(globalActiveId);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -42,6 +47,54 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
   }, [addMenuOpen]);
+
+  useEffect(() => {
+    if (!drawer.open || !drawer.autoCollapse) return;
+
+    const isProtectedTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Node)) return true;
+      if (asideRef.current?.contains(target)) return true;
+      if (typeof document !== 'undefined' && document.querySelector('[role="dialog"]')) return true;
+      return false;
+    };
+
+    const onOutsideInteraction = (e: MouseEvent | FocusEvent) => {
+      if (isResizingRef.current || useLayoutStore.getState().dragState?.active) return;
+      if (isProtectedTarget(e.target)) return;
+      layoutService.autoCollapseDrawer(side);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || addMenuOpen) return;
+      if (typeof document !== 'undefined' && document.querySelector('[role="dialog"]')) return;
+      const activeEl = document.activeElement;
+      if (activeEl instanceof Node && asideRef.current?.contains(activeEl)) {
+        layoutService.autoCollapseDrawer(side);
+      }
+    };
+
+    window.addEventListener('mousedown', onOutsideInteraction, true);
+    window.addEventListener('focusin', onOutsideInteraction, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onOutsideInteraction, true);
+      window.removeEventListener('focusin', onOutsideInteraction, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [drawer.open, drawer.autoCollapse, side, addMenuOpen]);
+
+  useEffect(() => {
+    const prev = prevActiveIdRef.current;
+    prevActiveIdRef.current = globalActiveId;
+    if (!drawer.open || !drawer.autoCollapse) return;
+    if (
+      globalActiveId &&
+      globalActiveId !== prev &&
+      !drawer.viewportIds.includes(globalActiveId)
+    ) {
+      layoutService.autoCollapseDrawer(side);
+    }
+  }, [globalActiveId, drawer.open, drawer.autoCollapse, drawer.viewportIds, side]);
 
   const visibleIds = useMemo(
     () =>
@@ -109,6 +162,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
+    isResizingRef.current = true;
     const startX = e.clientX;
     const startWidth = drawer.width;
 
@@ -119,6 +173,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
     };
 
     const onUp = () => {
+      isResizingRef.current = false;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
@@ -131,7 +186,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
     <div
       data-drop-drawer={side}
       aria-label={`${sideLabel} Activity Rail`}
-      className={`w-11 flex flex-col items-center py-2 gap-1.5 shrink-0 transition-colors ${
+      className={`relative z-20 w-11 flex flex-col items-center py-2 gap-1.5 shrink-0 transition-colors ${
         side === 'left' ? 'border-r' : 'border-l'
       } ${isDropTarget ? 'ring-2 ring-inset ring-[var(--accent)] bg-[var(--accent)]/15' : ''}`}
       style={{
@@ -265,6 +320,25 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
       <div className="flex-1" />
 
+      <button
+        type="button"
+        onClick={() => layoutService.toggleDrawerAutoCollapse(side)}
+        title={
+          drawer.autoCollapse
+            ? `Auto-Collapse ${sideLabel} Drawer: On (Click to Pin Open)`
+            : `Auto-Collapse ${sideLabel} Drawer: Off (Click to Auto-Hide on Blur)`
+        }
+        aria-label={`Rail Auto-Collapse ${sideLabel} Drawer`}
+        aria-pressed={drawer.autoCollapse}
+        className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
+          drawer.autoCollapse
+            ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/40'
+            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+        }`}
+      >
+        {drawer.autoCollapse ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+      </button>
+
       {side === 'left' && (
         <>
           <button
@@ -292,20 +366,21 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
   const drawerPanelElement =
     drawer.open && activeVp && activeDesc ? (
-      <div
-        data-drawer-side={side}
-        data-drop-drawer={side}
-        data-flip-id={activeVp.id}
-        onMouseDown={() => layoutService.setActiveViewport(activeVp.id)}
-        style={{
-          width: drawer.width,
-          backgroundColor: 'var(--bg-surface)',
-          borderColor: 'var(--border-subtle)',
-        }}
-        className={`flex flex-col shrink-0 min-h-0 ${
-          side === 'left' ? 'border-r' : 'border-l'
-        } ${isDropTarget ? 'ring-2 ring-inset ring-[var(--accent)]' : ''}`}
-      >
+      <div data-drawer-slot={side} className="flex h-full shrink-0">
+        <div
+          data-drawer-side={side}
+          data-drop-drawer={side}
+          data-drawer-viewport-id={activeVp.id}
+          onMouseDown={() => layoutService.setActiveViewport(activeVp.id)}
+          style={{
+            width: drawer.width,
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: 'var(--border-subtle)',
+          }}
+          className={`flex flex-col shrink-0 min-h-0 ${
+            side === 'left' ? 'border-r' : 'border-l'
+          } ${isDropTarget ? 'ring-2 ring-inset ring-[var(--accent)]' : ''}`}
+        >
         {/* Draggable Drawer Header */}
         <div
           onPointerDown={(e) => {
@@ -346,6 +421,29 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
               className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--bg-elevated)]"
             >
               <X className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              data-no-drag="true"
+              onClick={() => layoutService.toggleDrawerAutoCollapse(side)}
+              title={
+                drawer.autoCollapse
+                  ? `Auto-Collapse on Blur: On (Click to Pin Open)`
+                  : `Auto-Collapse on Blur: Off (Click to Auto-Hide on Blur)`
+              }
+              aria-label={`Auto-Collapse ${sideLabel} Drawer`}
+              aria-pressed={drawer.autoCollapse}
+              className={`p-1 rounded transition-colors ${
+                drawer.autoCollapse
+                  ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+              }`}
+            >
+              {drawer.autoCollapse ? (
+                <PinOff className="w-3 h-3" />
+              ) : (
+                <Pin className="w-3 h-3" />
+              )}
             </button>
             <button
               type="button"
@@ -394,6 +492,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
             );
           })}
         </div>
+        </div>
       </div>
     ) : null;
 
@@ -410,6 +509,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
   return (
     <aside
+      ref={asideRef}
       aria-label={`${sideLabel} Side Drawer`}
       className="flex shrink-0 h-full select-none"
     >

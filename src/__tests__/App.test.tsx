@@ -122,6 +122,41 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     const sftpVp = layoutService.findViewportsByType(SFTP_VIEWPORT_TYPE)[0];
     expect(layoutService.getViewportLocation(sftpVp.id)).toBe('right-drawer');
 
+    // Enable Auto-Collapse on Left Drawer -> outside mouseDown collapses it, rail click re-opens
+    fireEvent.click(within(leftDrawerAside).getByLabelText('Auto-Collapse Left Drawer'));
+    expect(useLayoutStore.getState().leftDrawer.autoCollapse).toBe(true);
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+
+    fireEvent.mouseDown(screen.getByRole('tablist', { name: 'Workspaces' }));
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(false);
+
+    fireEvent.click(within(leftDrawerAside).getByLabelText('Switch to Snippets'));
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+
+    // Enable Auto-Collapse on Right Drawer -> focus shift auto-collapses Left Drawer, outside mouseDown collapses Right Drawer
+    fireEvent.click(within(rightDrawerAside).getByLabelText('Auto-Collapse Right Drawer'));
+    expect(useLayoutStore.getState().rightDrawer.autoCollapse).toBe(true);
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(true);
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(false);
+
+    fireEvent.mouseDown(screen.getByRole('tablist', { name: 'Workspaces' }));
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(false);
+
+    // Disable auto-collapse on both via rail & re-open -> outside mouseDown keeps both open
+    fireEvent.click(within(leftDrawerAside).getByLabelText('Rail Auto-Collapse Left Drawer'));
+    fireEvent.click(within(rightDrawerAside).getByLabelText('Rail Auto-Collapse Right Drawer'));
+    expect(useLayoutStore.getState().leftDrawer.autoCollapse).toBe(false);
+    expect(useLayoutStore.getState().rightDrawer.autoCollapse).toBe(false);
+
+    fireEvent.click(within(leftDrawerAside).getByLabelText('Switch to Snippets'));
+    fireEvent.click(within(rightDrawerAside).getByLabelText('Switch to SFTP Browser'));
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(true);
+
+    fireEvent.mouseDown(screen.getByRole('tablist', { name: 'Workspaces' }));
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(true);
+
     // Add a new Terminal viewport into Left Drawer via Left Activity Rail's "+" button
     fireEvent.click(within(leftDrawerAside).getByLabelText('Add Viewport to Left Drawer'));
     const leftAddMenu = await screen.findByLabelText('Add Viewport Menu left');

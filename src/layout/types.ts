@@ -19,6 +19,7 @@ export interface WorkspaceState {
 export interface DrawerState {
   open: boolean;
   width: number;
+  autoCollapse: boolean;
   viewportIds: string[];
   activeViewportId: string | null;
 }

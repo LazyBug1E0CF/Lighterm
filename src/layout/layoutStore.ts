@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { makeUuid } from '../core/ipc';
+import { makeUuid, readLs, writeLs } from '../core/ipc';
 import type { ShellService } from '../core/shellService';
 import { harnessKernel } from '../harness/HarnessKernel';
 import {
@@ -55,15 +55,55 @@ const MIN_FLOAT_H = 180;
 const MIN_DRAWER_W = 200;
 const MAX_DRAWER_W = 600;
 const TERMINAL_VIEWPORT_TYPE = 'terminal.viewport';
+const LS_DRAWER_PREFS = 'lighterm:drawer-prefs';
+
+export interface DrawerPrefs {
+  leftAutoCollapse?: boolean;
+  rightAutoCollapse?: boolean;
+  leftWidth?: number;
+  rightWidth?: number;
+}
+
+export function readDrawerPrefs(): DrawerPrefs {
+  return readLs<DrawerPrefs>(LS_DRAWER_PREFS, () => ({}));
+}
+
+function saveDrawerPrefs(left: DrawerState, right: DrawerState): void {
+  writeLs(LS_DRAWER_PREFS, {
+    leftAutoCollapse: left.autoCollapse,
+    rightAutoCollapse: right.autoCollapse,
+    leftWidth: left.width,
+    rightWidth: right.width,
+  });
+}
+
+function clampDrawerWidth(width: number): number {
+  return Math.max(MIN_DRAWER_W, Math.min(MAX_DRAWER_W, Math.round(width)));
+}
 
 let workspaceSeq = 1;
+let lastAutoCollapseAt: Record<DrawerSide, number> = { left: 0, right: 0 };
 
 function createInitialLeftDrawer(): DrawerState {
-  return { open: true, width: 272, viewportIds: [], activeViewportId: null };
+  const prefs = readDrawerPrefs();
+  return {
+    open: true,
+    width: typeof prefs.leftWidth === 'number' ? clampDrawerWidth(prefs.leftWidth) : 272,
+    autoCollapse: Boolean(prefs.leftAutoCollapse),
+    viewportIds: [],
+    activeViewportId: null,
+  };
 }
 
 function createInitialRightDrawer(): DrawerState {
-  return { open: true, width: 288, viewportIds: [], activeViewportId: null };
+  const prefs = readDrawerPrefs();
+  return {
+    open: true,
+    width: typeof prefs.rightWidth === 'number' ? clampDrawerWidth(prefs.rightWidth) : 288,
+    autoCollapse: Boolean(prefs.rightAutoCollapse),
+    viewportIds: [],
+    activeViewportId: null,
+  };
 }
 
 function createEmptyWorkspace(name = 'Workspace 1', id = 'ws-1'): WorkspaceState {
@@ -690,10 +730,16 @@ export class LayoutService {
     if (existing) {
       const loc = this.getViewportLocation(existing.id);
       if (loc === 'left-drawer') {
+        if (Date.now() - lastAutoCollapseAt.left < 250) {
+          return existing;
+        }
         this.selectDrawerViewport('left', existing.id);
         return existing;
       }
       if (loc === 'right-drawer') {
+        if (Date.now() - lastAutoCollapseAt.right < 250) {
+          return existing;
+        }
         this.selectDrawerViewport('right', existing.id);
         return existing;
       }
@@ -888,12 +934,49 @@ export class LayoutService {
     );
   }
 
-  setDrawerWidth(side: DrawerSide, width: number): void {
-    const clamped = Math.max(MIN_DRAWER_W, Math.min(MAX_DRAWER_W, Math.round(width)));
+  setDrawerAutoCollapse(side: DrawerSide, autoCollapse: boolean): void {
+    const state = useLayoutStore.getState();
     const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
-    useLayoutStore.setState((state) => ({
-      [drawerKey]: { ...state[drawerKey], width: clamped },
-    }));
+    const current = state[drawerKey];
+    const nextDrawer: DrawerState = { ...current, autoCollapse };
+    const nextLeft = side === 'left' ? nextDrawer : state.leftDrawer;
+    const nextRight = side === 'right' ? nextDrawer : state.rightDrawer;
+    saveDrawerPrefs(nextLeft, nextRight);
+
+    useLayoutStore.setState((s) =>
+      mirrorActiveWorkspace(s, {
+        [drawerKey]: nextDrawer,
+        ...(autoCollapse && nextDrawer.open && nextDrawer.activeViewportId
+          ? { activeViewportId: nextDrawer.activeViewportId }
+          : {}),
+      }),
+    );
+  }
+
+  toggleDrawerAutoCollapse(side: DrawerSide): void {
+    const state = useLayoutStore.getState();
+    const drawer = side === 'left' ? state.leftDrawer : state.rightDrawer;
+    this.setDrawerAutoCollapse(side, !drawer.autoCollapse);
+  }
+
+  autoCollapseDrawer(side: DrawerSide): void {
+    const state = useLayoutStore.getState();
+    const drawer = side === 'left' ? state.leftDrawer : state.rightDrawer;
+    if (!drawer.open || !drawer.autoCollapse) return;
+    lastAutoCollapseAt[side] = Date.now();
+    this.setDrawerOpen(side, false);
+  }
+
+  setDrawerWidth(side: DrawerSide, width: number): void {
+    const clamped = clampDrawerWidth(width);
+    const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
+    useLayoutStore.setState((state) => {
+      const nextDrawer = { ...state[drawerKey], width: clamped };
+      const nextLeft = side === 'left' ? nextDrawer : state.leftDrawer;
+      const nextRight = side === 'right' ? nextDrawer : state.rightDrawer;
+      saveDrawerPrefs(nextLeft, nextRight);
+      return { [drawerKey]: nextDrawer };
+    });
   }
 
   selectGroupTab(groupId: string, viewportId: string): void {
@@ -1140,8 +1223,16 @@ export class LayoutService {
     );
 
     let nextRoot: DockNode | null = null;
-    let nextLeft = createInitialLeftDrawer();
-    let nextRight = createInitialRightDrawer();
+    let nextLeft: DrawerState = {
+      ...createInitialLeftDrawer(),
+      width: state.leftDrawer.width,
+      autoCollapse: state.leftDrawer.autoCollapse,
+    };
+    let nextRight: DrawerState = {
+      ...createInitialRightDrawer(),
+      width: state.rightDrawer.width,
+      autoCollapse: state.rightDrawer.autoCollapse,
+    };
 
     const terminals = scopedViewports.filter((v) => v.typeId === TERMINAL_VIEWPORT_TYPE);
     const leftDefaults = scopedViewports.filter(
@@ -1206,12 +1297,25 @@ export class LayoutService {
 
   resetForTesting(): void {
     workspaceSeq = 1;
+    lastAutoCollapseAt = { left: 0, right: 0 };
     resetLayoutAnimatorForTesting();
     const resetWs = createEmptyWorkspace('Workspace 1', 'ws-1');
     useLayoutStore.setState({
       viewports: {},
-      leftDrawer: createInitialLeftDrawer(),
-      rightDrawer: createInitialRightDrawer(),
+      leftDrawer: {
+        open: true,
+        width: 272,
+        autoCollapse: false,
+        viewportIds: [],
+        activeViewportId: null,
+      },
+      rightDrawer: {
+        open: true,
+        width: 288,
+        autoCollapse: false,
+        viewportIds: [],
+        activeViewportId: null,
+      },
       workspaces: [resetWs],
       activeWorkspaceId: resetWs.id,
       dockRoot: null,

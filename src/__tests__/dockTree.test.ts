@@ -9,7 +9,7 @@ import {
   removeViewportFromTree,
   updateDockSplitRatio,
 } from '../layout/dockTree';
-import { layoutService, useLayoutStore } from '../layout/layoutStore';
+import { layoutService, readDrawerPrefs, useLayoutStore } from '../layout/layoutStore';
 
 describe('Universal DockTree & LayoutService', () => {
   beforeEach(() => {
@@ -259,5 +259,56 @@ describe('Universal DockTree & LayoutService', () => {
     expect(useLayoutStore.getState().workspaces).toHaveLength(1);
     expect(useLayoutStore.getState().viewports[ws2Term.id]).toBeUndefined();
     expect(useLayoutStore.getState().viewports[t1.id]).toBeDefined();
+  });
+
+  it('supports drawer auto-collapse toggles, blur auto-collapse, and localStorage persistence', () => {
+    window.localStorage.clear();
+    layoutService.resetForTesting();
+
+    layoutService.openViewport({
+      typeId: 'hosts.manager',
+      pluginId: 'lighterm.hosts',
+      title: 'SSH Hosts',
+      preferredDock: 'left-drawer',
+    });
+    layoutService.openViewport({
+      typeId: 'monitor.panel',
+      pluginId: 'lighterm.monitor',
+      title: 'System Status',
+      preferredDock: 'right-drawer',
+    });
+
+    expect(useLayoutStore.getState().leftDrawer.autoCollapse).toBe(false);
+    expect(useLayoutStore.getState().rightDrawer.autoCollapse).toBe(false);
+
+    // autoCollapseDrawer is a no-op when autoCollapse is off
+    layoutService.autoCollapseDrawer('left');
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+
+    // Enable auto-collapse on both drawers -> persists to localStorage and keeps drawers open
+    layoutService.setDrawerAutoCollapse('left', true);
+    layoutService.toggleDrawerAutoCollapse('right');
+    expect(useLayoutStore.getState().leftDrawer.autoCollapse).toBe(true);
+    expect(useLayoutStore.getState().rightDrawer.autoCollapse).toBe(true);
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(true);
+    expect(readDrawerPrefs()).toMatchObject({
+      leftAutoCollapse: true,
+      rightAutoCollapse: true,
+    });
+
+    // Blur auto-collapse collapses both open auto-collapse drawers
+    layoutService.autoCollapseDrawer('left');
+    layoutService.autoCollapseDrawer('right');
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(false);
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(false);
+
+    // Pinning left drawer back updates localStorage preference
+    layoutService.toggleDrawerAutoCollapse('left');
+    expect(useLayoutStore.getState().leftDrawer.autoCollapse).toBe(false);
+    expect(readDrawerPrefs()).toMatchObject({
+      leftAutoCollapse: false,
+      rightAutoCollapse: true,
+    });
   });
 });

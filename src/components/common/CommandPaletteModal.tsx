@@ -65,6 +65,18 @@ export const CommandPaletteModal: React.FC = () => {
         run: () => layoutService.resetLayoutPreservingViewports(),
       },
       {
+        id: 'core-auto-collapse-left',
+        group: 'Core',
+        label: 'Toggle Left Drawer Auto-Collapse',
+        run: () => layoutService.toggleDrawerAutoCollapse('left'),
+      },
+      {
+        id: 'core-auto-collapse-right',
+        group: 'Core',
+        label: 'Toggle Right Drawer Auto-Collapse',
+        run: () => layoutService.toggleDrawerAutoCollapse('right'),
+      },
+      {
         id: 'core-settings',
         group: 'Core',
         label: 'Open Settings',

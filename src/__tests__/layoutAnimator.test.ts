@@ -303,4 +303,71 @@ describe('LayoutAnimator & Transition Sequencing', () => {
     await Promise.resolve();
     expect(useLayoutStore.getState().layoutTransitionSeq).toBeGreaterThan(seqAfterWsCreate);
   });
+
+  it('slides Left/Right drawers out from their respective edges and keeps already-open drawers steady', async () => {
+    const root = document.createElement('div');
+    const stage = document.createElement('div');
+    const centerPane = document.createElement('div');
+    centerPane.dataset.groupContainer = 'grp-1';
+    centerPane.dataset.flipId = 'vp-term';
+    centerPane.getBoundingClientRect = () => makeRect(44, 50, 900, 600);
+    stage.appendChild(centerPane);
+    root.appendChild(stage);
+    document.body.appendChild(root);
+
+    // 1. Open Left Drawer from collapsed state -> slides from -100% -> 0 with temporary overflow clip
+    const openLeftSnap = captureLayoutSnapshot('layout');
+    await Promise.resolve();
+
+    const leftSlot = document.createElement('div');
+    leftSlot.dataset.drawerSlot = 'left';
+    const leftPanel = document.createElement('div');
+    leftPanel.dataset.drawerSide = 'left';
+    leftPanel.dataset.drawerViewportId = 'vp-hosts';
+    leftPanel.getBoundingClientRect = () => makeRect(44, 50, 272, 600);
+    leftSlot.appendChild(leftPanel);
+    root.insertBefore(leftSlot, stage);
+    centerPane.getBoundingClientRect = () => makeRect(316, 50, 628, 600);
+
+    const { spy: leftSpy, mockAnim: leftAnim } = attachMockAnimate(leftPanel);
+    attachMockAnimate(centerPane);
+
+    playLayoutAnimation(root, stage, openLeftSnap, 'vp-hosts');
+
+    expect(leftSpy).toHaveBeenCalledWith(
+      [{ transform: 'translate3d(-100%, 0, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    );
+    expect(leftSlot.style.overflow).toBe('hidden');
+    leftAnim.onfinish?.();
+    expect(leftSlot.style.overflow).toBe('');
+
+    // 2. Open Right Drawer while Left Drawer is already open -> Right slides from +100% -> 0, Left stays still
+    leftSpy.mockClear();
+    const openRightSnap = captureLayoutSnapshot('layout');
+    await Promise.resolve();
+    expect(openRightSnap.drawerRects.has('left')).toBe(true);
+
+    const rightSlot = document.createElement('div');
+    rightSlot.dataset.drawerSlot = 'right';
+    const rightPanel = document.createElement('div');
+    rightPanel.dataset.drawerSide = 'right';
+    rightPanel.dataset.drawerViewportId = 'vp-monitor';
+    rightPanel.getBoundingClientRect = () => makeRect(900, 50, 288, 600);
+    rightSlot.appendChild(rightPanel);
+    root.appendChild(rightSlot);
+
+    const { spy: rightSpy, mockAnim: rightAnim } = attachMockAnimate(rightPanel);
+
+    playLayoutAnimation(root, stage, openRightSnap, 'vp-monitor');
+
+    expect(leftSpy).not.toHaveBeenCalled();
+    expect(rightSpy).toHaveBeenCalledWith(
+      [{ transform: 'translate3d(100%, 0, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    );
+    expect(rightSlot.style.overflow).toBe('hidden');
+    rightAnim.onfinish?.();
+    expect(rightSlot.style.overflow).toBe('');
+  });
 });

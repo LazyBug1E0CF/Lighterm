@@ -6,6 +6,7 @@ export interface LayoutAnimationSnapshot {
   workspaceDirection: 1 | -1;
   paneRects: Map<string, DOMRect>;
   groupRects: Map<string, DOMRect>;
+  drawerRects: Map<string, DOMRect>;
   tabRects: Map<string, DOMRect>;
   stageGroupCount: number;
 }
@@ -14,6 +15,7 @@ interface ActiveAnimRecord {
   anim: Animation;
   zIndex: string;
   transformOrigin: string;
+  onCleanup?: () => void;
 }
 
 const FLIP_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
@@ -37,7 +39,7 @@ function clamp(value: number, min: number, max: number): number {
 
 function collectRectMap(
   selector: string,
-  attrName: 'flipId' | 'groupContainer' | 'flipTabId',
+  attrName: 'flipId' | 'groupContainer' | 'flipTabId' | 'drawerSide' | 'drawerViewportId',
 ): Map<string, DOMRect> {
   const map = new Map<string, DOMRect>();
   if (typeof document === 'undefined') return map;
@@ -62,6 +64,7 @@ function cancelAndRestore(el: HTMLElement): { zIndex: string; transformOrigin: s
   existing.anim.cancel();
   el.style.zIndex = existing.zIndex;
   el.style.transformOrigin = existing.transformOrigin;
+  existing.onCleanup?.();
   return { zIndex: existing.zIndex, transformOrigin: existing.transformOrigin };
 }
 
@@ -69,14 +72,16 @@ function trackAnimation(
   el: HTMLElement,
   anim: Animation,
   baseStyle: { zIndex: string; transformOrigin: string },
+  onCleanup?: () => void,
 ): void {
-  activeAnimations.set(el, { anim, ...baseStyle });
+  activeAnimations.set(el, { anim, ...baseStyle, onCleanup });
   const cleanup = () => {
     const current = activeAnimations.get(el);
     if (current?.anim === anim) {
       activeAnimations.delete(el);
       el.style.zIndex = baseStyle.zIndex;
       el.style.transformOrigin = baseStyle.transformOrigin;
+      onCleanup?.();
     }
   };
   anim.onfinish = cleanup;
@@ -96,7 +101,7 @@ function animateStationaryViewportFade(containerEl: HTMLElement, viewportId: str
   trackAnimation(inner, anim, baseStyle);
 }
 
-/** Captures current layout pane, group, and tab screen rects before a discrete layout change. */
+/** Captures current layout pane, group, drawer, and tab screen rects before a discrete change. */
 export function captureLayoutSnapshot(
   kind: LayoutTransitionKind = 'layout',
   workspaceDirection: 1 | -1 = 1,
@@ -109,13 +114,23 @@ export function captureLayoutSnapshot(
     return pendingSnapshot;
   }
 
+  const paneRects = collectRectMap('[data-flip-id]', 'flipId');
+  const drawerViewportRects = collectRectMap('[data-drawer-viewport-id]', 'drawerViewportId');
+  for (const [id, rect] of drawerViewportRects) {
+    if (!paneRects.has(id)) {
+      paneRects.set(id, rect);
+    }
+  }
+
   const groupRects = collectRectMap('[data-group-container]', 'groupContainer');
+  const drawerRects = collectRectMap('[data-drawer-side]', 'drawerSide');
   const snap: LayoutAnimationSnapshot = {
     seq: ++snapshotSeq,
     kind,
     workspaceDirection,
-    paneRects: collectRectMap('[data-flip-id]', 'flipId'),
+    paneRects,
     groupRects,
+    drawerRects,
     tabRects: collectRectMap('[data-flip-tab-id]', 'flipTabId'),
     stageGroupCount: groupRects.size,
   };
@@ -142,7 +157,7 @@ export function resetLayoutAnimatorForTesting(): void {
   latestSnapshot = null;
 }
 
-/** Plays GPU FLIP pane, tab-pill, and workspace transitions from a pre-commit geometry snapshot. */
+/** Plays GPU FLIP pane, drawer slide-out, tab-pill, and workspace transitions. */
 export function playLayoutAnimation(
   rootEl: HTMLElement | null,
   stageEl: HTMLElement | null,
@@ -169,10 +184,11 @@ export function playLayoutAnimation(
     return;
   }
 
-  // Skip initial cold-start fade before any panes exist on screen.
+  // Skip initial cold-start fade before any panes or drawers exist on screen.
   if (
     snapshot.paneRects.size === 0 &&
     snapshot.groupRects.size === 0 &&
+    snapshot.drawerRects.size === 0 &&
     snapshot.tabRects.size === 0
   ) {
     return;
@@ -253,6 +269,35 @@ export function playLayoutAnimation(
       );
       trackAnimation(el, anim, baseStyle);
     }
+  }
+
+  // Slide newly opened Side Drawers cleanly out from their matching screen edge.
+  const drawerElements = rootEl.querySelectorAll<HTMLElement>('[data-drawer-side]');
+  for (const el of drawerElements) {
+    const side = el.dataset.drawerSide;
+    if ((side !== 'left' && side !== 'right') || typeof el.animate !== 'function') continue;
+    if (snapshot.drawerRects.has(side)) continue;
+
+    const baseStyle = cancelAndRestore(el);
+    const last = el.getBoundingClientRect();
+    if (last.width <= 0 || last.height <= 0) continue;
+
+    const slotEl = el.closest<HTMLElement>('[data-drawer-slot]');
+    const prevSlotOverflow = slotEl ? slotEl.style.overflow : '';
+    if (slotEl) {
+      slotEl.style.overflow = 'hidden';
+    }
+
+    const fromX = side === 'left' ? '-100%' : '100%';
+    const anim = el.animate(
+      [{ transform: `translate3d(${fromX}, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+      { duration: 220, easing: FLIP_EASING },
+    );
+    trackAnimation(el, anim, baseStyle, () => {
+      if (slotEl) {
+        slotEl.style.overflow = prevSlotOverflow;
+      }
+    });
   }
 
   // Animate tab pills horizontally in stationary tab bars when adding or closing tabs.
