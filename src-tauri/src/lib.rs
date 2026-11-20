@@ -67,24 +67,50 @@ pub fn run() {
     core.register_plugin(Arc::new(HistoryPlugin::new()))
         .expect("Failed to register History plugin");
 
+    let window_bounds = Arc::new(commands::WindowBoundsTracker::default());
+    let core_setup = Arc::clone(&core);
+    let bounds_setup = Arc::clone(&window_bounds);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { core })
-        .setup(|app| {
+        .manage(AppState {
+            core,
+            window_bounds,
+        })
+        .setup(move |app| {
             if let Some(main_win) = app.get_webview_window("main") {
+                commands::restore_window_bounds(&main_win, &core_setup, &bounds_setup);
                 let win_events = main_win.clone();
+                let core_events = Arc::clone(&core_setup);
+                let bounds_events = Arc::clone(&bounds_setup);
                 main_win.on_window_event(move |event| match event {
-                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_) => {
-                        let focused = if let tauri::WindowEvent::Focused(f) = event {
-                            *f
-                        } else {
-                            win_events.is_focused().unwrap_or(true)
-                        };
+                    tauri::WindowEvent::Moved(_) => {
+                        commands::update_bounds_from_webview_window(&win_events, &bounds_events);
+                        commands::schedule_window_bounds_save(&core_events, &bounds_events);
+                    }
+                    tauri::WindowEvent::Resized(_) => {
+                        commands::update_bounds_from_webview_window(&win_events, &bounds_events);
+                        commands::schedule_window_bounds_save(&core_events, &bounds_events);
                         let maximized = win_events.is_maximized().unwrap_or(false);
+                        let focused = win_events.is_focused().unwrap_or(true);
                         let _ = win_events.emit(
                             "window:state-changed",
                             commands::build_window_state(maximized, focused),
                         );
+                    }
+                    tauri::WindowEvent::Focused(focused) => {
+                        let maximized = win_events.is_maximized().unwrap_or(false);
+                        let _ = win_events.emit(
+                            "window:state-changed",
+                            commands::build_window_state(maximized, *focused),
+                        );
+                    }
+                    tauri::WindowEvent::CloseRequested { .. } => {
+                        commands::update_bounds_from_webview_window(&win_events, &bounds_events);
+                        commands::flush_window_bounds_sync(&core_events, &bounds_events);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        commands::flush_window_bounds_sync(&core_events, &bounds_events);
                     }
                     _ => {}
                 });

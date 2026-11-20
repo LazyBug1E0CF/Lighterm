@@ -83,7 +83,7 @@ export class HarnessKernel {
     }
     this.plugins.set(def.id, {
       def,
-      enabled: def.defaultEnabled ?? true,
+      enabled: def.alwaysOn ? true : (def.defaultEnabled ?? true),
       active: false,
       disposers: [],
     });
@@ -96,7 +96,9 @@ export class HarnessKernel {
     for (const id of this.pluginOrder) {
       const entry = this.plugins.get(id);
       if (!entry) continue;
-      if (id in stored) {
+      if (entry.def.alwaysOn) {
+        entry.enabled = true;
+      } else if (id in stored) {
         entry.enabled = Boolean(stored[id]);
       } else {
         entry.enabled = entry.def.defaultEnabled ?? true;
@@ -119,7 +121,7 @@ export class HarnessKernel {
         for (const bp of backendPlugins) {
           if (bp.id in stored) continue;
           const entry = this.plugins.get(bp.id);
-          if (!entry) continue;
+          if (!entry || entry.def.alwaysOn) continue;
           const desired = Boolean(bp.enabled);
           if (entry.enabled !== desired) {
             entry.enabled = desired;
@@ -169,6 +171,7 @@ export class HarnessKernel {
     if (!entry) {
       throw new Error(`Unknown plugin '${id}'`);
     }
+    if (entry.def.alwaysOn) return;
 
     entry.enabled = false;
     entry.error = undefined;
@@ -180,7 +183,7 @@ export class HarnessKernel {
 
   async togglePlugin(id: string): Promise<void> {
     const entry = this.plugins.get(id);
-    if (!entry) return;
+    if (!entry || entry.def.alwaysOn) return;
     if (entry.active || entry.enabled) {
       await this.disablePlugin(id);
     } else {
@@ -438,6 +441,7 @@ export class HarnessKernel {
         description: entry.def.description,
         enabled: entry.enabled,
         active: entry.active,
+        alwaysOn: Boolean(entry.def.alwaysOn),
         inject: entry.def.inject ?? [],
         provides: entry.def.provides ?? [],
         missingDependencies: (entry.def.inject ?? []).filter((dep) => !this.hasService(dep)),

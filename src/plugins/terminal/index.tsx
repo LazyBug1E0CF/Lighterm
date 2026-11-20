@@ -31,6 +31,7 @@ export const terminalPlugin: PluginDefinition = {
   inject: ['core:shell', 'core:layout'],
   provides: ['terminal:service'],
   defaultEnabled: true,
+  alwaysOn: true,
 
   activate(ctx) {
     const shell = ctx.inject<ShellService>('core:shell');

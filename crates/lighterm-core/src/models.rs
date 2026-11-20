@@ -249,3 +249,84 @@ pub struct SavedWorkspace {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonitorRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl WindowBounds {
+    pub fn is_sane(&self) -> bool {
+        self.width >= 400
+            && self.height >= 300
+            && self.x > -20_000
+            && self.y > -20_000
+            && self.x < 100_000
+            && self.y < 100_000
+    }
+
+    pub fn clamp_to_monitors(&self, monitors: &[MonitorRect]) -> Option<WindowBounds> {
+        if !self.is_sane() {
+            return None;
+        }
+        if monitors.is_empty() {
+            return Some(*self);
+        }
+
+        let w_left = self.x as i64;
+        let w_right = w_left + self.width as i64;
+        let w_top = self.y as i64;
+        // Require part of the top frameless drag bar to remain reachable on a live monitor.
+        let w_bar_bottom = w_top + (self.height.min(64) as i64);
+
+        let reachable = monitors.iter().any(|m| {
+            if m.width == 0 || m.height == 0 {
+                return false;
+            }
+            let m_left = m.x as i64;
+            let m_right = m_left + m.width as i64;
+            let m_top = m.y as i64;
+            let m_bottom = m_top + m.height as i64;
+
+            let overlap_x = (w_right.min(m_right) - w_left.max(m_left)).max(0);
+            let overlap_y = (w_bar_bottom.min(m_bottom) - w_top.max(m_top)).max(0);
+            overlap_x >= 80 && overlap_y >= 24
+        });
+
+        if reachable {
+            return Some(*self);
+        }
+
+        let Some(primary) = monitors.iter().find(|m| m.width > 0 && m.height > 0) else {
+            return Some(*self);
+        };
+
+        let clamped_w = self.width.min(primary.width).max(400.min(primary.width));
+        let clamped_h = self.height.min(primary.height).max(300.min(primary.height));
+        let centered_x = primary.x + ((primary.width.saturating_sub(clamped_w)) / 2) as i32;
+        let centered_y = primary.y + ((primary.height.saturating_sub(clamped_h)) / 2) as i32;
+
+        Some(WindowBounds {
+            x: centered_x,
+            y: centered_y,
+            width: clamped_w,
+            height: clamped_h,
+            maximized: self.maximized,
+        })
+    }
+}
+
+

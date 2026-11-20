@@ -203,20 +203,29 @@ export const PluginManagerModal: React.FC = () => {
                         </>
                       )}
 
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={plugin.enabled}
-                        aria-label={`Toggle ${plugin.name}`}
-                        onClick={() => void harness.togglePlugin(plugin.id)}
-                        className={`h-7 px-3 rounded-md font-medium transition-colors ${
-                          plugin.enabled
-                            ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/50 hover:bg-[var(--danger)]/20 hover:text-[var(--danger)] hover:border-[var(--danger)]/40'
-                            : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]'
-                        }`}
-                      >
-                        {plugin.enabled ? 'Disable' : 'Enable'}
-                      </button>
+                      {plugin.alwaysOn ? (
+                        <span
+                          aria-label={`${plugin.name} Always On`}
+                          className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-[var(--success)]/20 text-[var(--success)] shrink-0"
+                        >
+                          Always On
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={plugin.enabled}
+                          aria-label={`Toggle ${plugin.name}`}
+                          onClick={() => void harness.togglePlugin(plugin.id)}
+                          className={`h-7 px-3 rounded-md font-medium transition-colors ${
+                            plugin.enabled
+                              ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/50 hover:bg-[var(--danger)]/20 hover:text-[var(--danger)] hover:border-[var(--danger)]/40'
+                              : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]'
+                          }`}
+                        >
+                          {plugin.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                      )}
                     </div>
                   </div>
 

@@ -83,6 +83,7 @@ export interface PluginDefinition {
   inject?: string[];
   provides?: string[];
   defaultEnabled?: boolean;
+  alwaysOn?: boolean;
   activate(ctx: PluginContext): void | (() => void) | Promise<void | (() => void)>;
 }
 
@@ -93,6 +94,7 @@ export interface PluginRuntimeStatus {
   description: string;
   enabled: boolean;
   active: boolean;
+  alwaysOn: boolean;
   inject: string[];
   provides: string[];
   missingDependencies: string[];

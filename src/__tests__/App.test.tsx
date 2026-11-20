@@ -205,10 +205,17 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
       expect(findGroupContainingViewport(useLayoutStore.getState().dockRoot, monitorVp.id)).not.toBeNull();
     });
 
-    // Open Plugin Manager and live-toggle System Status & Terminal plugins off and back on
+    // Open Plugin Manager: Terminal Viewport & SSH Hosts Manager are Always On; optional plugins toggle live
     fireEvent.click(screen.getByLabelText('Manage Plugins'));
     const pluginModal = await screen.findByLabelText('Plugin Manager', { selector: '[role="dialog"]' });
     expect(pluginModal).toBeTruthy();
+
+    expect(within(pluginModal).getByLabelText('Terminal Viewport Always On')).toBeTruthy();
+    expect(within(pluginModal).getByLabelText('SSH Hosts Manager Always On')).toBeTruthy();
+    expect(within(pluginModal).queryByLabelText('Toggle Terminal Viewport')).toBeNull();
+    expect(within(pluginModal).queryByLabelText('Toggle SSH Hosts Manager')).toBeNull();
+    expect(harnessKernel.isPluginActive('lighterm.terminal')).toBe(true);
+    expect(harnessKernel.isPluginActive('lighterm.hosts')).toBe(true);
 
     fireEvent.click(within(pluginModal).getByLabelText('Toggle System Status Panel'));
     await waitFor(() => {
@@ -216,16 +223,17 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
       expect(screen.queryByLabelText('System Status Panel')).toBeNull();
     });
 
-    fireEvent.click(within(pluginModal).getByLabelText('Toggle Terminal Viewport'));
+    fireEvent.click(within(pluginModal).getByLabelText('Toggle Command Snippets'));
     await waitFor(() => {
-      expect(harnessKernel.isPluginActive('lighterm.terminal')).toBe(false);
-      expect(screen.queryByLabelText('Split Horizontally')).toBeNull();
+      expect(harnessKernel.isPluginActive('lighterm.snippets')).toBe(false);
+      expect(harnessKernel.isPluginActive('lighterm.terminal')).toBe(true);
+      expect(harnessKernel.isPluginActive('lighterm.hosts')).toBe(true);
     });
 
-    fireEvent.click(within(pluginModal).getByLabelText('Toggle Terminal Viewport'));
+    fireEvent.click(within(pluginModal).getByLabelText('Toggle Command Snippets'));
     fireEvent.click(within(pluginModal).getByLabelText('Toggle System Status Panel'));
     await waitFor(() => {
-      expect(harnessKernel.isPluginActive('lighterm.terminal')).toBe(true);
+      expect(harnessKernel.isPluginActive('lighterm.snippets')).toBe(true);
       expect(harnessKernel.isPluginActive('lighterm.monitor')).toBe(true);
       expect(screen.getByLabelText('Split Horizontally')).toBeTruthy();
     });

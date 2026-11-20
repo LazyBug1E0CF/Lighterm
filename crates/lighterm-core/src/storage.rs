@@ -10,7 +10,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
-use crate::models::{AppSettings, HostConfig, SavedWorkspace};
+use crate::models::{AppSettings, HostConfig, SavedWorkspace, WindowBounds};
 
 pub struct Storage {
     data_dir: PathBuf,
@@ -241,6 +241,38 @@ impl Storage {
         self.write_json_atomic("settings.json", &settings, false)?;
         Ok(settings)
     }
+
+    // ---- Window Bounds ----
+
+    pub fn get_window_bounds(&self) -> CoreResult<Option<WindowBounds>> {
+        let _guard = self.lock.lock();
+        let path = self.file_path("window-state.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let Ok(raw) = fs::read_to_string(&path) else {
+            return Ok(None);
+        };
+        if raw.trim().is_empty() {
+            return Ok(None);
+        }
+        let Ok(bounds) = serde_json::from_str::<WindowBounds>(&raw) else {
+            return Ok(None);
+        };
+        if !bounds.is_sane() {
+            return Ok(None);
+        }
+        Ok(Some(bounds))
+    }
+
+    pub fn save_window_bounds(&self, bounds: WindowBounds) -> CoreResult<WindowBounds> {
+        if !bounds.is_sane() {
+            return Err(CoreError::InvalidInput("invalid window bounds".into()));
+        }
+        let _guard = self.lock.lock();
+        self.write_json_atomic("window-state.json", &bounds, false)?;
+        Ok(bounds)
+    }
 }
 
 #[cfg(test)]
@@ -332,5 +364,106 @@ mod workspace_tests {
 
         storage.delete_workspace(&saved.id).expect("delete");
         assert!(storage.list_workspaces().expect("list after delete").is_empty());
+    }
+
+    #[test]
+    fn window_bounds_persist_validate_and_clamp_monitors() {
+        use crate::models::{MonitorRect, WindowBounds};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let storage = Storage::new(dir.path().to_path_buf()).expect("storage");
+
+        assert_eq!(storage.get_window_bounds().expect("initial empty"), None);
+
+        // Reject Win32 minimized sentinel (-32000, -32000) or collapsed sizes
+        let minimized = WindowBounds {
+            x: -32_000,
+            y: -32_000,
+            width: 1200,
+            height: 800,
+            maximized: false,
+        };
+        assert!(!minimized.is_sane());
+        assert!(storage.save_window_bounds(minimized).is_err());
+
+        let collapsed = WindowBounds {
+            x: 100,
+            y: 100,
+            width: 120,
+            height: 80,
+            maximized: false,
+        };
+        assert!(!collapsed.is_sane());
+        assert!(storage.save_window_bounds(collapsed).is_err());
+
+        // Persist and reload normal + maximized flag
+        let saved_bounds = WindowBounds {
+            x: -1600,
+            y: 80,
+            width: 1200,
+            height: 800,
+            maximized: true,
+        };
+        storage
+            .save_window_bounds(saved_bounds)
+            .expect("save valid bounds");
+        assert_eq!(
+            storage.get_window_bounds().expect("reload bounds"),
+            Some(saved_bounds)
+        );
+
+        // Corrupt JSON recovers safely to None rather than failing startup
+        fs::write(dir.path().join("window-state.json"), "{broken json").expect("write corrupt");
+        assert_eq!(storage.get_window_bounds().expect("corrupt fallback"), None);
+
+        // Multi-monitor clamping preserves valid secondary negative-x monitor coordinates
+        let dual_monitors = [
+            MonitorRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            MonitorRect {
+                x: -1920,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+        ];
+        assert_eq!(
+            saved_bounds.clamp_to_monitors(&dual_monitors),
+            Some(saved_bounds)
+        );
+
+        // Unplugging the secondary monitor re-centers onto the primary monitor
+        let primary_only = [MonitorRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        }];
+        let clamped_unplugged = saved_bounds
+            .clamp_to_monitors(&primary_only)
+            .expect("clamped onto primary");
+        assert_eq!(clamped_unplugged.width, 1200);
+        assert_eq!(clamped_unplugged.height, 800);
+        assert_eq!(clamped_unplugged.x, 360);
+        assert_eq!(clamped_unplugged.y, 140);
+        assert!(clamped_unplugged.maximized);
+
+        // Window whose top drag strip sits off-screen is also re-centered onto primary
+        let top_offscreen = WindowBounds {
+            x: 200,
+            y: -100,
+            width: 1000,
+            height: 700,
+            maximized: false,
+        };
+        let clamped_top = top_offscreen
+            .clamp_to_monitors(&primary_only)
+            .expect("clamped top bar");
+        assert_eq!(clamped_top.x, 460);
+        assert_eq!(clamped_top.y, 190);
     }
 }

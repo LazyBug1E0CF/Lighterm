@@ -14,6 +14,7 @@ export const hostsPlugin: PluginDefinition = {
   description: 'Saved SSH host profiles with quick connect and extensible per-host actions',
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
+  alwaysOn: true,
 
   activate(ctx) {
     const layout = ctx.inject<LayoutService>('core:layout');

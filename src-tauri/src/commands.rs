@@ -1,12 +1,13 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use lighterm_core::error::{CoreError, CoreResult};
 use lighterm_core::events::CoreEventSink;
 use lighterm_core::models::{
-    AppSettings, ConnectionTestResult, HostConfig, PluginInfo, SavedWorkspace, SessionInfo,
-    SessionKind, SessionStatus,
+    AppSettings, ConnectionTestResult, HostConfig, MonitorRect, PluginInfo, SavedWorkspace,
+    SessionInfo, SessionKind, SessionStatus, WindowBounds,
 };
 use lighterm_core::ssh::connect_host;
 use lighterm_core::LightermCore;
@@ -17,8 +18,15 @@ use lighterm_plugin_snippets::{Snippet, SnippetsPlugin};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+#[derive(Default)]
+pub struct WindowBoundsTracker {
+    pub current: Mutex<Option<WindowBounds>>,
+    pub save_seq: AtomicU64,
+}
+
 pub struct AppState {
     pub core: Arc<LightermCore>,
+    pub window_bounds: Arc<WindowBoundsTracker>,
 }
 
 struct TauriEventSink {
@@ -124,6 +132,140 @@ pub fn build_window_state(maximized: bool, focused: bool) -> WindowStatePayload 
     }
 }
 
+fn apply_geometry_sample(
+    tracker: &WindowBoundsTracker,
+    is_minimized: bool,
+    is_maximized: bool,
+    pos: Option<(i32, i32)>,
+    size: Option<(u32, u32)>,
+) {
+    if is_minimized {
+        return;
+    }
+    let Ok(mut guard) = tracker.current.lock() else {
+        return;
+    };
+    if is_maximized {
+        if let Some(prev) = *guard {
+            *guard = Some(WindowBounds {
+                maximized: true,
+                ..prev
+            });
+            return;
+        }
+        if let (Some((x, y)), Some((width, height))) = (pos, size) {
+            let candidate = WindowBounds {
+                x,
+                y,
+                width,
+                height,
+                maximized: true,
+            };
+            if candidate.is_sane() {
+                *guard = Some(candidate);
+            }
+        }
+        return;
+    }
+
+    if let (Some((x, y)), Some((width, height))) = (pos, size) {
+        let candidate = WindowBounds {
+            x,
+            y,
+            width,
+            height,
+            maximized: false,
+        };
+        if candidate.is_sane() {
+            *guard = Some(candidate);
+        }
+    }
+}
+
+pub fn update_bounds_from_webview_window(
+    win: &tauri::WebviewWindow,
+    tracker: &WindowBoundsTracker,
+) {
+    let is_minimized = win.is_minimized().unwrap_or(false);
+    let is_maximized = win.is_maximized().unwrap_or(false);
+    let pos = win.outer_position().ok().map(|p| (p.x, p.y));
+    let size = win.inner_size().ok().map(|s| (s.width, s.height));
+    apply_geometry_sample(tracker, is_minimized, is_maximized, pos, size);
+}
+
+pub fn update_bounds_from_window(win: &tauri::Window, tracker: &WindowBoundsTracker) {
+    let is_minimized = win.is_minimized().unwrap_or(false);
+    let is_maximized = win.is_maximized().unwrap_or(false);
+    let pos = win.outer_position().ok().map(|p| (p.x, p.y));
+    let size = win.inner_size().ok().map(|s| (s.width, s.height));
+    apply_geometry_sample(tracker, is_minimized, is_maximized, pos, size);
+}
+
+pub fn restore_window_bounds(
+    win: &tauri::WebviewWindow,
+    core: &LightermCore,
+    tracker: &WindowBoundsTracker,
+) {
+    let saved = core.storage.get_window_bounds().ok().flatten();
+    let monitors: Vec<MonitorRect> = win
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let p = m.position();
+            let s = m.size();
+            MonitorRect {
+                x: p.x,
+                y: p.y,
+                width: s.width,
+                height: s.height,
+            }
+        })
+        .collect();
+
+    if let Some(clamped) = saved.and_then(|b| b.clamp_to_monitors(&monitors)) {
+        if let Ok(mut guard) = tracker.current.lock() {
+            *guard = Some(clamped);
+        }
+        let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+            clamped.width,
+            clamped.height,
+        )));
+        let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+            clamped.x, clamped.y,
+        )));
+        if clamped.maximized {
+            let _ = win.maximize();
+        }
+    } else {
+        update_bounds_from_webview_window(win, tracker);
+    }
+}
+
+pub fn schedule_window_bounds_save(core: &Arc<LightermCore>, tracker: &Arc<WindowBoundsTracker>) {
+    let seq = tracker.save_seq.fetch_add(1, Ordering::SeqCst) + 1;
+    let core = Arc::clone(core);
+    let tracker = Arc::clone(tracker);
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        if tracker.save_seq.load(Ordering::SeqCst) != seq {
+            return;
+        }
+        let snapshot = tracker.current.lock().ok().and_then(|g| *g);
+        if let Some(bounds) = snapshot {
+            let _ = tokio::task::spawn_blocking(move || core.storage.save_window_bounds(bounds)).await;
+        }
+    });
+}
+
+pub fn flush_window_bounds_sync(core: &LightermCore, tracker: &WindowBoundsTracker) {
+    tracker.save_seq.fetch_add(1, Ordering::SeqCst);
+    let snapshot = tracker.current.lock().ok().and_then(|g| *g);
+    if let Some(bounds) = snapshot {
+        let _ = core.storage.save_window_bounds(bounds);
+    }
+}
+
 /// Reveals and focuses the main window as soon as React commits its initial UI DOM.
 #[tauri::command]
 pub fn window_ready(window: tauri::Window) {
@@ -152,18 +294,22 @@ pub fn window_minimize(window: tauri::Window) {
 }
 
 #[tauri::command]
-pub fn window_toggle_maximize(window: tauri::Window) -> bool {
+pub fn window_toggle_maximize(state: State<'_, AppState>, window: tauri::Window) -> bool {
     let currently_maximized = window.is_maximized().unwrap_or(false);
     if currently_maximized {
         let _ = window.unmaximize();
     } else {
         let _ = window.maximize();
     }
+    update_bounds_from_window(&window, &state.window_bounds);
+    schedule_window_bounds_save(&state.core, &state.window_bounds);
     window.is_maximized().unwrap_or(!currently_maximized)
 }
 
 #[tauri::command]
-pub fn window_close(window: tauri::Window) {
+pub fn window_close(state: State<'_, AppState>, window: tauri::Window) {
+    update_bounds_from_window(&window, &state.window_bounds);
+    flush_window_bounds_sync(&state.core, &state.window_bounds);
     let _ = window.close();
 }
 

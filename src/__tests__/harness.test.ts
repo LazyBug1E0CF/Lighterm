@@ -99,4 +99,38 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
     expect(kernel.isPluginActive('test.consumer')).toBe(true);
     expect(kernel.getViewportDescriptor('base.vp')).toBeDefined();
   });
+
+  it('keeps alwaysOn plugins enabled and active even if disabled in storage or via disablePlugin/togglePlugin', async () => {
+    window.localStorage.setItem(
+      'lighterm:enabled-plugins',
+      JSON.stringify({ 'test.always': false }),
+    );
+    const kernel = new HarnessKernel();
+    kernel.provideCoreService('core:shell', { name: 'shell' });
+
+    const disposeSpy = vi.fn();
+    kernel.register({
+      id: 'test.always',
+      name: 'Always Core',
+      version: '1.0.0',
+      description: 'Cannot be disabled',
+      inject: ['core:shell'],
+      alwaysOn: true,
+      activate(ctx) {
+        ctx.onCleanup(disposeSpy);
+      },
+    });
+
+    await kernel.start();
+    expect(kernel.isPluginActive('test.always')).toBe(true);
+    expect(kernel.getPluginStatuses()[0]?.alwaysOn).toBe(true);
+    expect(kernel.getPluginStatuses()[0]?.enabled).toBe(true);
+
+    await kernel.disablePlugin('test.always');
+    await kernel.togglePlugin('test.always');
+    expect(kernel.isPluginActive('test.always')).toBe(true);
+    expect(disposeSpy).not.toHaveBeenCalled();
+
+    await expect(kernel.disablePlugin('test.missing')).rejects.toThrow(/Unknown plugin/);
+  });
 });
