@@ -52,6 +52,22 @@ export const terminalPlugin: PluginDefinition = {
         return;
       }
 
+      const targetDrawer =
+        meta?.targetDrawer === 'left' || meta?.targetDrawer === 'right'
+          ? meta.targetDrawer
+          : undefined;
+
+      if (targetDrawer) {
+        layout.openViewport({
+          typeId: TERMINAL_VIEWPORT_TYPE,
+          pluginId: ctx.pluginId,
+          title,
+          params: { sessionId },
+          preferredDock: targetDrawer === 'left' ? 'left-drawer' : 'right-drawer',
+        });
+        return;
+      }
+
       const splitFromViewportId =
         typeof meta?.splitFromViewportId === 'string' ? meta.splitFromViewportId : undefined;
       const splitDirection =

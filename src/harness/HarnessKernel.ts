@@ -13,12 +13,22 @@ import type {
 
 const LS_ENABLED_PLUGINS = 'lighterm:enabled-plugins';
 
+function isPromiseLike(val: unknown): val is PromiseLike<unknown> {
+  return (
+    typeof val === 'object' &&
+    val !== null &&
+    'then' in val &&
+    typeof (val as { then?: unknown }).then === 'function'
+  );
+}
+
 interface PluginEntry {
   def: PluginDefinition;
   enabled: boolean;
   active: boolean;
   error?: string;
   disposers: (() => void)[];
+  pending?: Promise<void>;
 }
 
 const EMPTY_SLOTS = (): Record<SlotName, SlotContribution[]> => ({
@@ -83,19 +93,6 @@ export class HarnessKernel {
   async start(initialEnabled?: Record<string, boolean>): Promise<void> {
     const stored = initialEnabled ?? readLs<Record<string, boolean>>(LS_ENABLED_PLUGINS, () => ({}));
 
-    if (isTauriRuntime() && !initialEnabled) {
-      try {
-        const backendPlugins = await invokeTauri<BackendPluginInfo[]>('plugins_list');
-        for (const bp of backendPlugins) {
-          if (!(bp.id in stored)) {
-            stored[bp.id] = bp.enabled;
-          }
-        }
-      } catch {
-        // Ignore if backend plugin list is unavailable
-      }
-    }
-
     for (const id of this.pluginOrder) {
       const entry = this.plugins.get(id);
       if (!entry) continue;
@@ -107,8 +104,39 @@ export class HarnessKernel {
     }
 
     this.started = true;
-    await this.reconcileActivations();
+    // Activate synchronous plugins and populate snapshot before the first await so UI chrome renders on frame 0.
+    this.reconcileActivationsSync();
     this.rebuildSnapshot();
+
+    if (await this.reconcileActivations()) {
+      this.rebuildSnapshot();
+    }
+
+    if (isTauriRuntime() && !initialEnabled) {
+      try {
+        const backendPlugins = await invokeTauri<BackendPluginInfo[]>('plugins_list');
+        let backendChanged = false;
+        for (const bp of backendPlugins) {
+          if (bp.id in stored) continue;
+          const entry = this.plugins.get(bp.id);
+          if (!entry) continue;
+          const desired = Boolean(bp.enabled);
+          if (entry.enabled !== desired) {
+            entry.enabled = desired;
+            if (!desired && entry.active) {
+              this.deactivateRecursive(bp.id, new Set());
+            }
+            backendChanged = true;
+          }
+        }
+        if (backendChanged) {
+          await this.reconcileActivations();
+          this.rebuildSnapshot();
+        }
+      } catch {
+        // Ignore if backend plugin list is unavailable
+      }
+    }
   }
 
   async enablePlugin(id: string): Promise<void> {
@@ -177,28 +205,51 @@ export class HarnessKernel {
     writeLs(LS_ENABLED_PLUGINS, map);
   }
 
-  private async reconcileActivations(): Promise<void> {
+  private canActivate(entry: PluginEntry | undefined): entry is PluginEntry {
+    return Boolean(
+      entry &&
+        entry.enabled &&
+        !entry.active &&
+        (entry.def.inject ?? []).every((dep) => this.hasService(dep)),
+    );
+  }
+
+  private reconcileActivationsSync(): boolean {
+    let anyActivated = false;
     let progressed = true;
     while (progressed) {
       progressed = false;
       for (const id of this.pluginOrder) {
         const entry = this.plugins.get(id);
-        if (!entry || !entry.enabled || entry.active) continue;
-        const depsOk = (entry.def.inject ?? []).every((dep) => this.hasService(dep));
-        if (depsOk) {
-          await this.activateSingle(entry);
+        if (!this.canActivate(entry) || entry.pending) continue;
+        const pending = this.tryActivateEntry(entry);
+        if (!pending && entry.active) {
           progressed = true;
+          anyActivated = true;
         }
       }
     }
+    return anyActivated;
   }
 
-  private async activateSingle(entry: PluginEntry): Promise<void> {
-    if (entry.active) return;
-    const disposers: (() => void)[] = [];
-    entry.disposers = disposers;
+  private async reconcileActivations(): Promise<boolean> {
+    let anyChanged = false;
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      for (const id of this.pluginOrder) {
+        const entry = this.plugins.get(id);
+        if (!this.canActivate(entry)) continue;
+        await this.activateSingle(entry);
+        progressed = true;
+        anyChanged = true;
+      }
+    }
+    return anyChanged;
+  }
 
-    const ctx: PluginContext = {
+  private createPluginContext(entry: PluginEntry, disposers: (() => void)[]): PluginContext {
+    return {
       pluginId: entry.def.id,
       inject: <T>(serviceName: string): T => {
         const svc = this.getService<T>(serviceName);
@@ -269,18 +320,67 @@ export class HarnessKernel {
         disposers.push(dispose);
       },
     };
+  }
+
+  private tryActivateEntry(entry: PluginEntry): Promise<void> | null {
+    if (entry.active) return null;
+    if (entry.pending) return entry.pending;
+
+    const disposers: (() => void)[] = [];
+    entry.disposers = disposers;
+    const ctx = this.createPluginContext(entry, disposers);
 
     try {
-      const cleanup = await entry.def.activate(ctx);
-      if (typeof cleanup === 'function') {
-        disposers.push(cleanup);
+      const result = entry.def.activate(ctx);
+      if (isPromiseLike(result)) {
+        const pending = Promise.resolve(result)
+          .then((cleanup) => {
+            if (!entry.enabled || !this.started) {
+              if (typeof cleanup === 'function') {
+                disposers.push(cleanup);
+              }
+              this.runDisposers(entry);
+              return;
+            }
+            if (typeof cleanup === 'function') {
+              disposers.push(cleanup);
+            }
+            entry.active = true;
+            entry.error = undefined;
+          })
+          .catch((err) => {
+            entry.active = false;
+            entry.error = err instanceof Error ? err.message : String(err);
+            this.runDisposers(entry);
+          })
+          .finally(() => {
+            if (entry.pending === pending) {
+              entry.pending = undefined;
+            }
+          });
+        entry.pending = pending;
+        return pending;
+      }
+
+      if (typeof result === 'function') {
+        disposers.push(result);
       }
       entry.active = true;
       entry.error = undefined;
+      return null;
     } catch (err) {
       entry.active = false;
       entry.error = err instanceof Error ? err.message : String(err);
       this.runDisposers(entry);
+      return null;
+    }
+  }
+
+  private async activateSingle(entry: PluginEntry): Promise<void> {
+    if (entry.active) return;
+    const pending = this.tryActivateEntry(entry);
+    if (pending) {
+      await pending;
     }
   }
 

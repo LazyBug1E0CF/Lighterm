@@ -57,6 +57,9 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
     const el = containerRef.current;
     if (!el || !sessionId) return;
 
+    let disposed = false;
+    let resizeRafId = 0;
+
     const currentSettings = settingsRef.current;
     const currentTheme = getThemePreset(currentSettings.themeId);
 
@@ -91,7 +94,9 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
 
     const isJsdom =
       typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('jsdom');
-    if (!isJsdom) {
+    // Defer WebGL initialization until after mount so StrictMode's synthetic cleanup cancels cleanly.
+    const webglRafId = requestAnimationFrame(() => {
+      if (disposed || isJsdom) return;
       try {
         const webgl = new WebglAddon();
         webgl.onContextLoss(() => webgl.dispose());
@@ -99,7 +104,7 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
       } catch {
         // Fallback to canvas/DOM renderer
       }
-    }
+    });
 
     termRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -174,7 +179,7 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
     }
 
     const doFit = () => {
-      if (!el.clientWidth || !el.clientHeight) return;
+      if (disposed || !el.clientWidth || !el.clientHeight) return;
       try {
         fitAddon.fit();
         if (term.cols > 0 && term.rows > 0) {
@@ -189,13 +194,17 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
-        requestAnimationFrame(doFit);
+        if (resizeRafId) cancelAnimationFrame(resizeRafId);
+        resizeRafId = requestAnimationFrame(doFit);
       });
       resizeObserver.observe(el);
     }
 
     return () => {
+      disposed = true;
+      cancelAnimationFrame(webglRafId);
       cancelAnimationFrame(rafId);
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
       resizeObserver?.disconnect();
       unsubscribe();
       onDataDisposable.dispose();

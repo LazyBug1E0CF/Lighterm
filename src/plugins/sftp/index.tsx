@@ -2,7 +2,7 @@ import React from 'react';
 import { FolderOpen } from 'lucide-react';
 import { type ShellService, useShellStore } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
+import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { sftpClient, subscribeSftpProgressEvents, useSftpPluginStore } from './sftpClient';
 import { SftpViewport } from './SftpViewport';
@@ -10,9 +10,7 @@ import { SftpViewport } from './SftpViewport';
 export const SFTP_VIEWPORT_TYPE = 'sftp.browser';
 
 const SftpTopBarButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore((s) =>
-    Object.values(s.viewports).some((v) => v.typeId === SFTP_VIEWPORT_TYPE),
-  );
+  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(SFTP_VIEWPORT_TYPE));
   return (
     <button
       type="button"
@@ -39,12 +37,25 @@ export const sftpPlugin: PluginDefinition = {
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
 
-  async activate(ctx) {
+  activate(ctx) {
     const shell = ctx.inject<ShellService>('core:shell');
     const layout = ctx.inject<LayoutService>('core:layout');
 
-    const unlistenProgress = await subscribeSftpProgressEvents();
-    ctx.onCleanup(unlistenProgress);
+    let disposed = false;
+    let unlistenProgress: (() => void) | null = null;
+    void subscribeSftpProgressEvents()
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          unlistenProgress = unlisten;
+        }
+      })
+      .catch(() => {});
+    ctx.onCleanup(() => {
+      disposed = true;
+      unlistenProgress?.();
+    });
 
     ctx.registerViewport({
       typeId: SFTP_VIEWPORT_TYPE,
@@ -74,7 +85,12 @@ export const sftpPlugin: PluginDefinition = {
     const toggle = () => {
       const existing = layout.findViewportsByType(SFTP_VIEWPORT_TYPE)[0];
       if (existing) {
-        layout.closeViewport(existing.id);
+        layout.toggleSingletonViewport({
+          typeId: SFTP_VIEWPORT_TYPE,
+          pluginId: ctx.pluginId,
+          title: 'SFTP Browser',
+          preferredDock: 'bottom',
+        });
         return;
       }
 

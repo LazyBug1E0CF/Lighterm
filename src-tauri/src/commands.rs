@@ -88,6 +88,16 @@ fn sink_for(app: &AppHandle) -> Arc<dyn CoreEventSink> {
     Arc::new(TauriEventSink { app: app.clone() })
 }
 
+async fn run_blocking<T, F>(on_panic: fn(String) -> CoreError, f: F) -> CoreResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> CoreResult<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| on_panic(format!("Background task panicked: {e}")))?
+}
+
 fn resolve_host(state: &State<'_, AppState>, host_id: &str) -> CoreResult<HostConfig> {
     state
         .core
@@ -96,10 +106,26 @@ fn resolve_host(state: &State<'_, AppState>, host_id: &str) -> CoreResult<HostCo
         .ok_or_else(|| CoreError::InvalidInput(format!("Host '{host_id}' not found")))
 }
 
+// ---- Window Lifecycle Commands ----
+
+/// Reveals and focuses the main window as soon as React commits its initial UI DOM.
+#[tauri::command]
+pub fn window_ready(window: tauri::Window) {
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// Clears the opaque startup fallback background after the first visible compositor frame.
+#[tauri::command]
+pub fn window_enable_transparency(window: tauri::Window, webview: tauri::Webview) {
+    let _ = window.set_background_color(None);
+    let _ = webview.set_background_color(Some(tauri::webview::Color(0, 0, 0, 0)));
+}
+
 // ---- Core Shell Session Commands ----
 
 #[tauri::command]
-pub fn terminal_create_local(
+pub async fn terminal_create_local(
     app: AppHandle,
     state: State<'_, AppState>,
     cols: u16,
@@ -108,10 +134,13 @@ pub fn terminal_create_local(
     shell: Option<String>,
     title: Option<String>,
 ) -> CoreResult<SessionInfo> {
-    state
-        .core
-        .sessions
-        .create_local(cols, rows, cwd, shell, title, sink_for(&app))
+    let core = Arc::clone(&state.core);
+    let sink = sink_for(&app);
+    run_blocking(CoreError::PtyError, move || {
+        core.sessions
+            .create_local(cols, rows, cwd, shell, title, sink)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -172,26 +201,35 @@ pub fn terminal_list(state: State<'_, AppState>) -> Vec<SessionInfo> {
 // ---- Core Hosts Commands ----
 
 #[tauri::command]
-pub fn hosts_list(state: State<'_, AppState>) -> CoreResult<Vec<HostConfig>> {
-    state.core.storage.list_hosts()
+pub async fn hosts_list(state: State<'_, AppState>) -> CoreResult<Vec<HostConfig>> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || core.storage.list_hosts()).await
 }
 
 #[tauri::command]
-pub fn hosts_save(state: State<'_, AppState>, host: HostConfig) -> CoreResult<HostConfig> {
-    state.core.ssh_pool.invalidate(&host.id);
-    if let Ok(sftp) = state.core.plugins.get_active::<SftpPlugin>("lighterm.sftp") {
-        sftp.invalidate(&host.id);
-    }
-    state.core.storage.save_host(host)
+pub async fn hosts_save(state: State<'_, AppState>, host: HostConfig) -> CoreResult<HostConfig> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.ssh_pool.invalidate(&host.id);
+        if let Ok(sftp) = core.plugins.get_active::<SftpPlugin>("lighterm.sftp") {
+            sftp.invalidate(&host.id);
+        }
+        core.storage.save_host(host)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn hosts_delete(state: State<'_, AppState>, id: String) -> CoreResult<()> {
-    state.core.ssh_pool.invalidate(&id);
-    if let Ok(sftp) = state.core.plugins.get_active::<SftpPlugin>("lighterm.sftp") {
-        sftp.invalidate(&id);
-    }
-    state.core.storage.delete_host(&id)
+pub async fn hosts_delete(state: State<'_, AppState>, id: String) -> CoreResult<()> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.ssh_pool.invalidate(&id);
+        if let Ok(sftp) = core.plugins.get_active::<SftpPlugin>("lighterm.sftp") {
+            sftp.invalidate(&id);
+        }
+        core.storage.delete_host(&id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -214,16 +252,21 @@ pub async fn hosts_test_connection(host: HostConfig) -> ConnectionTestResult {
 // ---- Core Settings Commands ----
 
 #[tauri::command]
-pub fn settings_get(state: State<'_, AppState>) -> CoreResult<AppSettings> {
-    state.core.storage.get_settings()
+pub async fn settings_get(state: State<'_, AppState>) -> CoreResult<AppSettings> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || core.storage.get_settings()).await
 }
 
 #[tauri::command]
-pub fn settings_save(
+pub async fn settings_save(
     state: State<'_, AppState>,
     settings: AppSettings,
 ) -> CoreResult<AppSettings> {
-    state.core.storage.save_settings(settings)
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.save_settings(settings)
+    })
+    .await
 }
 
 // ---- Core Plugin Registry Commands ----
@@ -234,13 +277,17 @@ pub fn plugins_list(state: State<'_, AppState>) -> Vec<PluginInfo> {
 }
 
 #[tauri::command]
-pub fn plugins_set_enabled(
+pub async fn plugins_set_enabled(
     state: State<'_, AppState>,
     id: String,
     enabled: bool,
 ) -> CoreResult<Vec<PluginInfo>> {
-    let ctx = state.core.context();
-    state.core.plugins.set_enabled(&id, enabled, &ctx)
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::PluginError, move || {
+        let ctx = core.context();
+        core.plugins.set_enabled(&id, enabled, &ctx)
+    })
+    .await
 }
 
 // ---- SFTP Plugin Commands ----
@@ -335,36 +382,36 @@ pub async fn sftp_download(
 // ---- Snippets Plugin Commands ----
 
 #[tauri::command]
-pub fn snippets_list(state: State<'_, AppState>) -> CoreResult<Vec<Snippet>> {
+pub async fn snippets_list(state: State<'_, AppState>) -> CoreResult<Vec<Snippet>> {
     let snippets = state
         .core
         .plugins
         .get_active::<SnippetsPlugin>("lighterm.snippets")?;
-    snippets.list_snippets()
+    run_blocking(CoreError::PluginError, move || snippets.list_snippets()).await
 }
 
 #[tauri::command]
-pub fn snippets_save(state: State<'_, AppState>, snippet: Snippet) -> CoreResult<Snippet> {
+pub async fn snippets_save(state: State<'_, AppState>, snippet: Snippet) -> CoreResult<Snippet> {
     let snippets = state
         .core
         .plugins
         .get_active::<SnippetsPlugin>("lighterm.snippets")?;
-    snippets.save_snippet(snippet)
+    run_blocking(CoreError::PluginError, move || snippets.save_snippet(snippet)).await
 }
 
 #[tauri::command]
-pub fn snippets_delete(state: State<'_, AppState>, id: String) -> CoreResult<()> {
+pub async fn snippets_delete(state: State<'_, AppState>, id: String) -> CoreResult<()> {
     let snippets = state
         .core
         .plugins
         .get_active::<SnippetsPlugin>("lighterm.snippets")?;
-    snippets.delete_snippet(&id)
+    run_blocking(CoreError::PluginError, move || snippets.delete_snippet(&id)).await
 }
 
 // ---- History Plugin Commands ----
 
 #[tauri::command]
-pub fn history_list(
+pub async fn history_list(
     state: State<'_, AppState>,
     query: Option<String>,
     limit: Option<usize>,
@@ -373,11 +420,14 @@ pub fn history_list(
         .core
         .plugins
         .get_active::<HistoryPlugin>("lighterm.history")?;
-    history.list_history(query.as_deref(), limit)
+    run_blocking(CoreError::PluginError, move || {
+        history.list_history(query.as_deref(), limit)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn history_record(
+pub async fn history_record(
     state: State<'_, AppState>,
     command: String,
     session_kind: SessionKind,
@@ -387,25 +437,28 @@ pub fn history_record(
         .core
         .plugins
         .get_active::<HistoryPlugin>("lighterm.history")?;
-    history.record_history(command, session_kind, host_label)
+    run_blocking(CoreError::PluginError, move || {
+        history.record_history(command, session_kind, host_label)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn history_delete(state: State<'_, AppState>, id: String) -> CoreResult<()> {
+pub async fn history_delete(state: State<'_, AppState>, id: String) -> CoreResult<()> {
     let history = state
         .core
         .plugins
         .get_active::<HistoryPlugin>("lighterm.history")?;
-    history.delete_history(&id)
+    run_blocking(CoreError::PluginError, move || history.delete_history(&id)).await
 }
 
 #[tauri::command]
-pub fn history_clear(state: State<'_, AppState>) -> CoreResult<()> {
+pub async fn history_clear(state: State<'_, AppState>) -> CoreResult<()> {
     let history = state
         .core
         .plugins
         .get_active::<HistoryPlugin>("lighterm.history")?;
-    history.clear_history()
+    run_blocking(CoreError::PluginError, move || history.clear_history()).await
 }
 
 // ---- Monitor Plugin Commands ----
@@ -422,9 +475,9 @@ pub async fn monitor_get_stats(
         .plugins
         .get_active::<MonitorPlugin>("lighterm.monitor")?;
     match kind {
-        SessionKind::Local => tokio::task::spawn_blocking(move || monitor.collect_local())
-            .await
-            .map_err(|e| CoreError::PluginError(format!("Monitor task panicked: {e}")))?,
+        SessionKind::Local => {
+            run_blocking(CoreError::PluginError, move || monitor.collect_local()).await
+        }
         SessionKind::Ssh => {
             let host = if let Some(cfg) = host_config {
                 cfg

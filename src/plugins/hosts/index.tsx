@@ -2,16 +2,14 @@ import React from 'react';
 import { Server } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
+import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { HostsViewport } from './HostsViewport';
 
 export const HOSTS_VIEWPORT_TYPE = 'hosts.manager';
 
 const HostsToggleButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore((s) =>
-    Object.values(s.viewports).some((v) => v.typeId === HOSTS_VIEWPORT_TYPE),
-  );
+  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(HOSTS_VIEWPORT_TYPE));
   return (
     <button
       type="button"
@@ -45,7 +43,7 @@ export const hostsPlugin: PluginDefinition = {
       typeId: HOSTS_VIEWPORT_TYPE,
       title: 'SSH Hosts',
       icon: Server,
-      defaultDock: 'left',
+      defaultDock: 'left-drawer',
       defaultFloatSize: { width: 320, height: 480 },
       singleton: true,
       component: HostsViewport,
@@ -56,8 +54,16 @@ export const hostsPlugin: PluginDefinition = {
         typeId: HOSTS_VIEWPORT_TYPE,
         pluginId: ctx.pluginId,
         title: 'SSH Hosts',
-        preferredDock: 'left',
+        preferredDock: 'left-drawer',
       });
+    };
+
+    const toggleDrawerOrOpen = () => {
+      if (useLayoutStore.getState().leftDrawer.viewportIds.length > 0) {
+        layout.toggleDrawer('left');
+      } else {
+        toggle();
+      }
     };
 
     ctx.registerSlot({
@@ -78,7 +84,7 @@ export const hostsPlugin: PluginDefinition = {
       const sc = useShellStore.getState().settings.shortcuts;
       if (matchesShortcut(e, sc.toggleSidebar)) {
         e.preventDefault();
-        toggle();
+        toggleDrawerOrOpen();
       }
     };
     window.addEventListener('keydown', onKeyDown);

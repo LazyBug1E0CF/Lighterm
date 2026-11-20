@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Puzzle, ShieldCheck, X } from 'lucide-react';
+import { Layers, PanelLeft, PanelRight, Puzzle, ShieldCheck, X } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
 import { useHarness, usePluginStatuses, useViewportDescriptors } from '../../harness/HarnessContext';
 import { layoutService, useLayoutStore } from '../../layout/layoutStore';
@@ -33,6 +33,41 @@ export const PluginManagerModal: React.FC = () => {
       }
     } else if (desc.typeId === 'terminal.viewport') {
       void shellService.createLocalSession();
+    } else {
+      layoutService.openViewport({
+        typeId: desc.typeId,
+        pluginId: desc.pluginId,
+        title: desc.title,
+        preferredDock: desc.defaultDock,
+      });
+    }
+    shellService.setPluginManagerOpen(false);
+  };
+
+  const dockPluginToDrawer = (pluginId: string, side: 'left' | 'right') => {
+    const desc = Object.values(descriptors).find((d) => d.pluginId === pluginId);
+    if (!desc) return;
+    if (desc.singleton) {
+      const existing = layoutService.findViewportsByType(desc.typeId)[0];
+      if (existing) {
+        layoutService.dockToDrawer(existing.id, side, true);
+      } else {
+        layoutService.openViewport({
+          typeId: desc.typeId,
+          pluginId: desc.pluginId,
+          title: desc.title,
+          preferredDock: side === 'left' ? 'left-drawer' : 'right-drawer',
+        });
+      }
+    } else if (desc.typeId === 'terminal.viewport') {
+      void shellService.createLocalSession({ meta: { targetDrawer: side } });
+    } else {
+      layoutService.openViewport({
+        typeId: desc.typeId,
+        pluginId: desc.pluginId,
+        title: desc.title,
+        preferredDock: side === 'left' ? 'left-drawer' : 'right-drawer',
+      });
     }
     shellService.setPluginManagerOpen(false);
   };
@@ -134,16 +169,38 @@ export const PluginManagerModal: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {plugin.active && hasViewport && (
-                        <button
-                          type="button"
-                          onClick={() => openPluginViewport(plugin.id)}
-                          className="h-7 px-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
-                        >
-                          <Layers className="w-3 h-3" />
-                          <span>{vpCount > 0 ? `Focus (${vpCount})` : 'Open Viewport'}</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => dockPluginToDrawer(plugin.id, 'left')}
+                            title="Add / Move Viewport to Left Drawer"
+                            aria-label={`Left Drawer ${plugin.name}`}
+                            className="h-7 px-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
+                          >
+                            <PanelLeft className="w-3 h-3" />
+                            <span>Left</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dockPluginToDrawer(plugin.id, 'right')}
+                            title="Add / Move Viewport to Right Drawer"
+                            aria-label={`Right Drawer ${plugin.name}`}
+                            className="h-7 px-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
+                          >
+                            <PanelRight className="w-3 h-3" />
+                            <span>Right</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openPluginViewport(plugin.id)}
+                            className="h-7 px-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
+                          >
+                            <Layers className="w-3 h-3" />
+                            <span>{vpCount > 0 ? `Focus (${vpCount})` : 'Open'}</span>
+                          </button>
+                        </>
                       )}
 
                       <button

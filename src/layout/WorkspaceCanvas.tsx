@@ -6,7 +6,8 @@ import { DockGroupView } from './DockGroupView';
 import { pruneUnavailableViewports } from './dockTree';
 import { FloatingViewportWindow } from './FloatingViewportWindow';
 import { layoutService, useLayoutStore } from './layoutStore';
-import type { DockEdge, DockNode, DockZone, SnapTarget } from './types';
+import { SideDrawer } from './SideDrawer';
+import type { DockEdge, DockNode, DockZone, DrawerSide, SnapTarget } from './types';
 
 interface DockSplitBranchProps {
   node: DockNode;
@@ -113,7 +114,6 @@ export const WorkspaceCanvas: React.FC = () => {
     [floating, viewports, descriptors],
   );
 
-  // Track workspace size for floating clamping
   useEffect(() => {
     const el = workspaceRef.current;
     if (!el) return;
@@ -129,7 +129,6 @@ export const WorkspaceCanvas: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
-  // Global pointer tracking for viewport drag/snap
   const isTrackingDrag = Boolean(dragState);
   useEffect(() => {
     if (!isTrackingDrag) {
@@ -137,7 +136,10 @@ export const WorkspaceCanvas: React.FC = () => {
       return;
     }
 
-    const resolveDropTarget = (x: number, y: number): { snap: SnapTarget | null; groupId: string | null } => {
+    const resolveDropTarget = (
+      x: number,
+      y: number,
+    ): { snap: SnapTarget | null; groupId: string | null } => {
       const elements =
         typeof document.elementsFromPoint === 'function'
           ? document.elementsFromPoint(x, y)
@@ -148,6 +150,9 @@ export const WorkspaceCanvas: React.FC = () => {
 
       for (const el of elements) {
         if (!(el instanceof HTMLElement)) continue;
+        if (!snap && el.dataset.dropDrawer) {
+          snap = { kind: 'drawer', side: el.dataset.dropDrawer as DrawerSide };
+        }
         if (!snap && el.dataset.dropEdge) {
           snap = { kind: 'edge', edge: el.dataset.dropEdge as DockEdge };
         }
@@ -212,101 +217,110 @@ export const WorkspaceCanvas: React.FC = () => {
   const snapPreviewStyle = previewStyleForSnap(dragState?.active ? dragState.snapTarget : null);
 
   return (
-    <div ref={workspaceRef} className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden">
-      {/* Maximized Viewport Override */}
-      {maximizedVp && MaxComponent ? (
-        <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <div
-            className="h-8 px-3 flex items-center justify-between border-b border-[var(--border-subtle)] text-xs shrink-0"
-            style={{ backgroundColor: 'var(--bg-elevated)' }}
-          >
-            <span className="font-medium text-[var(--text-primary)]">{maximizedVp.title}</span>
+    <div className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden">
+      <SideDrawer side="left" />
+
+      <div ref={workspaceRef} className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden">
+        {maximizedVp && MaxComponent ? (
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
+            <div
+              className="h-8 px-3 flex items-center justify-between border-b border-[var(--border-subtle)] text-xs shrink-0"
+              style={{ backgroundColor: 'var(--bg-elevated)' }}
+            >
+              <span className="font-medium text-[var(--text-primary)]">{maximizedVp.title}</span>
+              <button
+                type="button"
+                onClick={() => layoutService.toggleMaximize(maximizedVp.id)}
+                aria-label="Restore Maximized Viewport"
+                className="px-2 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] flex items-center gap-1"
+              >
+                <Minimize2 className="w-3 h-3" />
+                Restore
+              </button>
+            </div>
+            <div className="flex-1 flex flex-col min-w-0 min-h-0">
+              <MaxComponent
+                viewport={maximizedVp}
+                isActive
+                isFloating={false}
+                onClose={() => layoutService.closeViewport(maximizedVp.id)}
+              />
+            </div>
+          </div>
+        ) : visibleDockRoot ? (
+          <DockSplitBranch node={visibleDockRoot} hoveredGroupId={hoveredGroupId} />
+        ) : visibleFloating.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)]">
+            <p>
+              No central viewports open. Create a shell or drag any drawer/floating viewport here.
+            </p>
             <button
               type="button"
-              onClick={() => layoutService.toggleMaximize(maximizedVp.id)}
-              aria-label="Restore Maximized Viewport"
-              className="px-2 py-0.5 rounded bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] flex items-center gap-1"
+              onClick={() => void shellService.createLocalSession()}
+              className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
             >
-              <Minimize2 className="w-3 h-3" />
-              Restore
+              <Plus className="w-3.5 h-3.5" />
+              New Local Shell
             </button>
           </div>
-          <div className="flex-1 flex flex-col min-w-0 min-h-0">
-            <MaxComponent
-              viewport={maximizedVp}
-              isActive
-              isFloating={false}
-              onClose={() => layoutService.closeViewport(maximizedVp.id)}
-            />
-          </div>
-        </div>
-      ) : visibleDockRoot ? (
-        <DockSplitBranch node={visibleDockRoot} hoveredGroupId={hoveredGroupId} />
-      ) : visibleFloating.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)]">
-          <p>No active viewports. Open a shell connection or enable plugins to compose your workspace.</p>
-          <button
-            type="button"
-            onClick={() => void shellService.createLocalSession()}
-            className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New Local Shell
-          </button>
-        </div>
-      ) : (
-        <div className="flex-1" />
-      )}
+        ) : (
+          <div className="flex-1" />
+        )}
 
-      {/* Free-Floating Viewports Layer */}
-      {!maximizedVp &&
-        visibleFloating.map((item) => (
-          <FloatingViewportWindow key={item.viewportId} item={item} />
-        ))}
+        {/* Free-Floating Viewports Layer */}
+        {!maximizedVp &&
+          visibleFloating.map((item) => (
+            <FloatingViewportWindow key={item.viewportId} item={item} />
+          ))}
 
-      {/* Outer Edge Snap Zones & Translucent Snap Preview while Dragging */}
-      {dragState?.active && (
-        <>
-          {(['left', 'right', 'top', 'bottom'] as DockEdge[]).map((edge) => {
-            const active =
-              dragState.snapTarget?.kind === 'edge' && dragState.snapTarget.edge === edge;
-            const pos =
-              edge === 'left'
-                ? 'left-0 top-6 bottom-6 w-6'
-                : edge === 'right'
-                  ? 'right-0 top-6 bottom-6 w-6'
-                  : edge === 'top'
-                    ? 'top-0 left-6 right-6 h-6'
-                    : 'bottom-0 left-6 right-6 h-6';
-            return (
+        {/* Outer Edge Snap Zones & Translucent Snap Preview while Dragging */}
+        {dragState?.active && (
+          <>
+            {(['left', 'right', 'top', 'bottom'] as DockEdge[]).map((edge) => {
+              const active =
+                dragState.snapTarget?.kind === 'edge' && dragState.snapTarget.edge === edge;
+              const pos =
+                edge === 'left'
+                  ? 'left-0 top-6 bottom-6 w-6'
+                  : edge === 'right'
+                    ? 'right-0 top-6 bottom-6 w-6'
+                    : edge === 'top'
+                      ? 'top-0 left-6 right-6 h-6'
+                      : 'bottom-0 left-6 right-6 h-6';
+              return (
+                <div
+                  key={edge}
+                  data-drop-edge={edge}
+                  aria-label={`Snap Edge ${edge}`}
+                  className={`absolute z-40 ${pos} transition-colors ${
+                    active
+                      ? 'bg-[var(--accent)]/40 border-2 border-[var(--accent)]'
+                      : 'bg-[var(--accent)]/10 border border-dashed border-[var(--accent)]/40'
+                  }`}
+                />
+              );
+            })}
+
+            {snapPreviewStyle && (
               <div
-                key={edge}
-                data-drop-edge={edge}
-                aria-label={`Snap Edge ${edge}`}
-                className={`absolute z-40 ${pos} transition-colors ${
-                  active
-                    ? 'bg-[var(--accent)]/40 border-2 border-[var(--accent)]'
-                    : 'bg-[var(--accent)]/10 border border-dashed border-[var(--accent)]/40'
-                }`}
+                style={snapPreviewStyle}
+                className="absolute z-30 pointer-events-none bg-[var(--accent)]/15 border-2 border-[var(--accent)] rounded-md transition-all"
               />
-            );
-          })}
+            )}
+          </>
+        )}
+      </div>
 
-          {snapPreviewStyle && (
-            <div
-              style={snapPreviewStyle}
-              className="absolute z-30 pointer-events-none bg-[var(--accent)]/15 border-2 border-[var(--accent)] rounded-md transition-all"
-            />
-          )}
+      <SideDrawer side="right" />
 
-          {/* Drag Ghost Pill */}
-          <div
-            style={{ left: dragState.currentX + 12, top: dragState.currentY + 12 }}
-            className="fixed z-50 pointer-events-none px-2.5 py-1 rounded-md border border-[var(--accent)] bg-[var(--bg-elevated)]/95 text-xs text-[var(--text-primary)] shadow-lg"
-          >
-            {viewports[dragState.viewportId]?.title ?? 'Viewport'}
-          </div>
-        </>
+      {/* Global Drag Ghost Pill */}
+      {dragState?.active && (
+        <div
+          style={{ left: dragState.currentX + 12, top: dragState.currentY + 12 }}
+          className="fixed z-50 pointer-events-none px-2.5 py-1 rounded-md border border-[var(--accent)] bg-[var(--bg-elevated)]/95 text-xs text-[var(--text-primary)] shadow-lg"
+        >
+          {viewports[dragState.viewportId]?.title ?? 'Viewport'}
+        </div>
       )}
     </div>
   );

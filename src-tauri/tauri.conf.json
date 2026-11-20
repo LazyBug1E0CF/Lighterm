@@ -5,7 +5,7 @@
   "identifier": "com.lighterm.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
@@ -18,7 +18,10 @@
         "height": 820,
         "minWidth": 860,
         "minHeight": 540,
-        "transparent": true
+        "visible": false,
+        "transparent": true,
+        "backgroundColor": "#1a1b26",
+        "additionalBrowserArgs": "--no-proxy-server --autoplay-policy=no-user-gesture-required --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
       }
     ],
     "security": {

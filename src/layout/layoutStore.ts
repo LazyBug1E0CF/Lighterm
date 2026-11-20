@@ -15,6 +15,8 @@ import type {
   DockEdge,
   DockNode,
   DockZone,
+  DrawerSide,
+  DrawerState,
   FloatingRect,
   FloatingViewportItem,
   OpenViewportOptions,
@@ -25,6 +27,8 @@ import type {
 
 export interface LayoutStoreState {
   viewports: Record<string, ViewportInstance>;
+  leftDrawer: DrawerState;
+  rightDrawer: DrawerState;
   dockRoot: DockNode | null;
   floating: FloatingViewportItem[];
   activeViewportId: string | null;
@@ -36,6 +40,64 @@ export interface LayoutStoreState {
 
 const MIN_FLOAT_W = 280;
 const MIN_FLOAT_H = 180;
+const MIN_DRAWER_W = 200;
+const MAX_DRAWER_W = 600;
+
+function createInitialLeftDrawer(): DrawerState {
+  return { open: true, width: 272, viewportIds: [], activeViewportId: null };
+}
+
+function createInitialRightDrawer(): DrawerState {
+  return { open: true, width: 288, viewportIds: [], activeViewportId: null };
+}
+
+function removeViewportFromDrawer(drawer: DrawerState, viewportId: string): DrawerState {
+  if (!drawer.viewportIds.includes(viewportId)) {
+    return drawer;
+  }
+  const idx = drawer.viewportIds.indexOf(viewportId);
+  const remaining = drawer.viewportIds.filter((id) => id !== viewportId);
+  if (remaining.length === 0) {
+    return { ...drawer, open: false, viewportIds: [], activeViewportId: null };
+  }
+  const nextActive =
+    drawer.activeViewportId === viewportId
+      ? remaining[Math.min(idx, remaining.length - 1)]
+      : drawer.activeViewportId;
+  return {
+    ...drawer,
+    viewportIds: remaining,
+    activeViewportId: nextActive,
+  };
+}
+
+function insertViewportIntoDrawer(
+  drawer: DrawerState,
+  viewportId: string,
+  activate = true,
+): DrawerState {
+  const nextIds = drawer.viewportIds.includes(viewportId)
+    ? drawer.viewportIds
+    : [...drawer.viewportIds, viewportId];
+  return {
+    ...drawer,
+    open: activate ? true : drawer.open,
+    viewportIds: nextIds,
+    activeViewportId: activate || !drawer.activeViewportId ? viewportId : drawer.activeViewportId,
+  };
+}
+
+function detachViewportEverywhere(
+  state: LayoutStoreState,
+  viewportId: string,
+): Pick<LayoutStoreState, 'dockRoot' | 'floating' | 'leftDrawer' | 'rightDrawer'> {
+  return {
+    dockRoot: removeViewportFromTree(state.dockRoot, viewportId),
+    floating: state.floating.filter((f) => f.viewportId !== viewportId),
+    leftDrawer: removeViewportFromDrawer(state.leftDrawer, viewportId),
+    rightDrawer: removeViewportFromDrawer(state.rightDrawer, viewportId),
+  };
+}
 
 function clampFloatRect(
   rect: Partial<FloatingRect>,
@@ -55,6 +117,8 @@ function clampFloatRect(
 
 export const useLayoutStore = create<LayoutStoreState>(() => ({
   viewports: {},
+  leftDrawer: createInitialLeftDrawer(),
+  rightDrawer: createInitialRightDrawer(),
   dockRoot: null,
   floating: [],
   activeViewportId: null,
@@ -76,6 +140,36 @@ export class LayoutService {
 
   findViewportsByType(typeId: string): ViewportInstance[] {
     return Object.values(useLayoutStore.getState().viewports).filter((v) => v.typeId === typeId);
+  }
+
+  getViewportLocation(
+    viewportId: string,
+  ): 'left-drawer' | 'right-drawer' | 'floating' | 'docked' | null {
+    const state = useLayoutStore.getState();
+    if (!state.viewports[viewportId]) return null;
+    if (state.leftDrawer.viewportIds.includes(viewportId)) return 'left-drawer';
+    if (state.rightDrawer.viewportIds.includes(viewportId)) return 'right-drawer';
+    if (state.floating.some((f) => f.viewportId === viewportId)) return 'floating';
+    if (findGroupContainingViewport(state.dockRoot, viewportId)) return 'docked';
+    return null;
+  }
+
+  isViewportOpenOnScreen(typeId: string): boolean {
+    const state = useLayoutStore.getState();
+    const matches = Object.values(state.viewports).filter((v) => v.typeId === typeId);
+    for (const vp of matches) {
+      if (state.leftDrawer.viewportIds.includes(vp.id)) {
+        if (state.leftDrawer.open && state.leftDrawer.activeViewportId === vp.id) return true;
+        continue;
+      }
+      if (state.rightDrawer.viewportIds.includes(vp.id)) {
+        if (state.rightDrawer.open && state.rightDrawer.activeViewportId === vp.id) return true;
+        continue;
+      }
+      if (state.floating.some((f) => f.viewportId === vp.id)) return true;
+      if (findGroupContainingViewport(state.dockRoot, vp.id)) return true;
+    }
+    return false;
   }
 
   updateViewportTitle(viewportId: string, title: string): void {
@@ -105,6 +199,19 @@ export class LayoutService {
     };
 
     const nextViewports = { ...state.viewports, [id]: instance };
+
+    if (opts.preferredDock === 'left-drawer' || opts.preferredDock === 'right-drawer') {
+      const activate = opts.activateDrawer ?? true;
+      const side: DrawerSide = opts.preferredDock === 'left-drawer' ? 'left' : 'right';
+      const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
+      const nextDrawer = insertViewportIntoDrawer(state[drawerKey], id, activate);
+      useLayoutStore.setState({
+        viewports: nextViewports,
+        [drawerKey]: nextDrawer,
+        activeViewportId: activate ? id : state.activeViewportId,
+      });
+      return instance;
+    }
 
     if (opts.preferredDock === 'float') {
       const nextZ = state.topZIndex + 1;
@@ -138,28 +245,7 @@ export class LayoutService {
         nextRoot = dockViewportAtEdge(null, id, 'left');
       } else {
         const middleGroup = groups[Math.floor(groups.length / 2)];
-        const middleIsSidePanel = middleGroup.viewportIds.some((vid) => {
-          const vpType = nextViewports[vid]?.typeId;
-          return vpType === 'hosts.manager' || vpType === 'monitor.panel';
-        });
-        if (middleIsSidePanel) {
-          const hasRightMonitor = groups.some((g) =>
-            g.viewportIds.some((vid) => nextViewports[vid]?.typeId === 'monitor.panel'),
-          );
-          const hasLeftHosts = groups.some((g) =>
-            g.viewportIds.some((vid) => nextViewports[vid]?.typeId === 'hosts.manager'),
-          );
-          if (hasLeftHosts && hasRightMonitor) {
-            const leftGrp = groups[0];
-            nextRoot = dockViewportInGroup(state.dockRoot, id, leftGrp.id, 'right', 0.28);
-          } else if (hasLeftHosts) {
-            nextRoot = dockViewportAtEdge(state.dockRoot, id, 'right', 0.22);
-          } else {
-            nextRoot = dockViewportAtEdge(state.dockRoot, id, 'left', 0.76);
-          }
-        } else {
-          nextRoot = dockViewportInGroup(state.dockRoot, id, middleGroup.id, 'center');
-        }
+        nextRoot = dockViewportInGroup(state.dockRoot, id, middleGroup.id, 'center');
       }
     } else {
       nextRoot = dockViewportAtEdge(state.dockRoot, id, opts.preferredDock);
@@ -176,6 +262,15 @@ export class LayoutService {
   toggleSingletonViewport(opts: Omit<OpenViewportOptions, 'id'>): ViewportInstance | null {
     const existing = this.findViewportsByType(opts.typeId)[0];
     if (existing) {
+      const loc = this.getViewportLocation(existing.id);
+      if (loc === 'left-drawer') {
+        this.selectDrawerViewport('left', existing.id);
+        return existing;
+      }
+      if (loc === 'right-drawer') {
+        this.selectDrawerViewport('right', existing.id);
+        return existing;
+      }
       this.closeViewport(existing.id);
       return null;
     }
@@ -197,22 +292,22 @@ export class LayoutService {
     }
 
     const { [viewportId]: _removed, ...restViewports } = state.viewports;
-    const nextRoot = removeViewportFromTree(state.dockRoot, viewportId);
-    const nextFloating = state.floating.filter((f) => f.viewportId !== viewportId);
+    const detached = detachViewportEverywhere(state, viewportId);
 
     let nextActive = state.activeViewportId;
     if (nextActive === viewportId) {
-      const remainingGroup = collectGroups(nextRoot)[0];
+      const remainingGroup = collectGroups(detached.dockRoot)[0];
       nextActive =
         remainingGroup?.activeViewportId ??
-        nextFloating[nextFloating.length - 1]?.viewportId ??
+        detached.floating[detached.floating.length - 1]?.viewportId ??
+        detached.leftDrawer.activeViewportId ??
+        detached.rightDrawer.activeViewportId ??
         null;
     }
 
     useLayoutStore.setState({
       viewports: restViewports,
-      dockRoot: nextRoot,
-      floating: nextFloating,
+      ...detached,
       activeViewportId: nextActive,
       maximizedViewportId:
         state.maximizedViewportId === viewportId ? null : state.maximizedViewportId,
@@ -222,7 +317,11 @@ export class LayoutService {
   setActiveViewport(viewportId: string): void {
     const state = useLayoutStore.getState();
     if (!state.viewports[viewportId]) return;
+
+    const inLeft = state.leftDrawer.viewportIds.includes(viewportId);
+    const inRight = state.rightDrawer.viewportIds.includes(viewportId);
     const isFloating = state.floating.some((f) => f.viewportId === viewportId);
+
     let nextZ = state.topZIndex;
     const nextFloating = isFloating
       ? state.floating.map((f) =>
@@ -234,8 +333,90 @@ export class LayoutService {
       activeViewportId: viewportId,
       dockRoot: setActiveViewportInTree(state.dockRoot, viewportId),
       floating: nextFloating,
+      leftDrawer: inLeft
+        ? { ...state.leftDrawer, open: true, activeViewportId: viewportId }
+        : state.leftDrawer,
+      rightDrawer: inRight
+        ? { ...state.rightDrawer, open: true, activeViewportId: viewportId }
+        : state.rightDrawer,
       topZIndex: nextZ,
     });
+  }
+
+  dockToDrawer(viewportId: string, side: DrawerSide, activate = true): void {
+    const state = useLayoutStore.getState();
+    if (!state.viewports[viewportId]) return;
+    const detached = detachViewportEverywhere(state, viewportId);
+    const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
+    const nextDrawer = insertViewportIntoDrawer(detached[drawerKey], viewportId, activate);
+
+    useLayoutStore.setState({
+      ...detached,
+      [drawerKey]: nextDrawer,
+      activeViewportId: activate ? viewportId : state.activeViewportId,
+      maximizedViewportId:
+        state.maximizedViewportId === viewportId ? null : state.maximizedViewportId,
+    });
+  }
+
+  toggleDrawer(side: DrawerSide): void {
+    const state = useLayoutStore.getState();
+    const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
+    const drawer = state[drawerKey];
+    if (drawer.viewportIds.length === 0) {
+      useLayoutStore.setState({
+        [drawerKey]: { ...drawer, open: false, activeViewportId: null },
+      });
+      return;
+    }
+    const nextOpen = !drawer.open;
+    useLayoutStore.setState({
+      [drawerKey]: {
+        ...drawer,
+        open: nextOpen,
+        activeViewportId: drawer.activeViewportId ?? drawer.viewportIds[0] ?? null,
+      },
+    });
+  }
+
+  setDrawerOpen(side: DrawerSide, open: boolean): void {
+    const state = useLayoutStore.getState();
+    const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
+    const drawer = state[drawerKey];
+    useLayoutStore.setState({
+      [drawerKey]: {
+        ...drawer,
+        open: drawer.viewportIds.length > 0 ? open : false,
+        activeViewportId: drawer.activeViewportId ?? drawer.viewportIds[0] ?? null,
+      },
+    });
+  }
+
+  selectDrawerViewport(side: DrawerSide, viewportId: string): void {
+    const state = useLayoutStore.getState();
+    const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
+    const drawer = state[drawerKey];
+    if (!drawer.viewportIds.includes(viewportId)) return;
+
+    if (drawer.open && drawer.activeViewportId === viewportId) {
+      useLayoutStore.setState({
+        [drawerKey]: { ...drawer, open: false },
+      });
+      return;
+    }
+
+    useLayoutStore.setState({
+      [drawerKey]: { ...drawer, open: true, activeViewportId: viewportId },
+      activeViewportId: viewportId,
+    });
+  }
+
+  setDrawerWidth(side: DrawerSide, width: number): void {
+    const clamped = Math.max(MIN_DRAWER_W, Math.min(MAX_DRAWER_W, Math.round(width)));
+    const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
+    useLayoutStore.setState((state) => ({
+      [drawerKey]: { ...state[drawerKey], width: clamped },
+    }));
   }
 
   selectGroupTab(groupId: string, viewportId: string): void {
@@ -248,11 +429,11 @@ export class LayoutService {
   dockToEdge(viewportId: string, edge: DockEdge, ratio?: number): void {
     const state = useLayoutStore.getState();
     if (!state.viewports[viewportId]) return;
-    const nextFloating = state.floating.filter((f) => f.viewportId !== viewportId);
-    const nextRoot = dockViewportAtEdge(state.dockRoot, viewportId, edge, ratio);
+    const detached = detachViewportEverywhere(state, viewportId);
+    const nextRoot = dockViewportAtEdge(detached.dockRoot, viewportId, edge, ratio);
     useLayoutStore.setState({
+      ...detached,
       dockRoot: nextRoot,
-      floating: nextFloating,
       activeViewportId: viewportId,
       maximizedViewportId: null,
     });
@@ -261,11 +442,11 @@ export class LayoutService {
   dockToGroup(viewportId: string, targetGroupId: string, zone: DockZone, ratio = 0.5): void {
     const state = useLayoutStore.getState();
     if (!state.viewports[viewportId]) return;
-    const nextFloating = state.floating.filter((f) => f.viewportId !== viewportId);
-    const nextRoot = dockViewportInGroup(state.dockRoot, viewportId, targetGroupId, zone, ratio);
+    const detached = detachViewportEverywhere(state, viewportId);
+    const nextRoot = dockViewportInGroup(detached.dockRoot, viewportId, targetGroupId, zone, ratio);
     useLayoutStore.setState({
+      ...detached,
       dockRoot: nextRoot,
-      floating: nextFloating,
       activeViewportId: viewportId,
       maximizedViewportId: null,
     });
@@ -293,7 +474,7 @@ export class LayoutService {
       return;
     }
 
-    const nextRoot = removeViewportFromTree(state.dockRoot, viewportId);
+    const detached = detachViewportEverywhere(state, viewportId);
     const clamped = clampFloatRect(
       {
         width: rect?.width ?? desc?.defaultFloatSize?.width ?? 520,
@@ -302,12 +483,12 @@ export class LayoutService {
         y: rect?.y,
       },
       state.workspaceBounds,
-      state.floating.length,
+      detached.floating.length,
     );
 
     useLayoutStore.setState({
-      dockRoot: nextRoot,
-      floating: [...state.floating, { viewportId, ...clamped, zIndex: nextZ }],
+      ...detached,
+      floating: [...detached.floating, { viewportId, ...clamped, zIndex: nextZ }],
       activeViewportId: viewportId,
       topZIndex: nextZ,
       maximizedViewportId: null,
@@ -356,7 +537,7 @@ export class LayoutService {
 
   startDrag(
     viewportId: string,
-    source: 'docked' | 'floating',
+    source: 'docked' | 'floating' | 'drawer',
     startX: number,
     startY: number,
     floatOffsetX = 140,
@@ -407,6 +588,11 @@ export class LayoutService {
     useLayoutStore.setState({ dragState: null });
     if (!drag || !drag.active) return;
 
+    if (drag.snapTarget?.kind === 'drawer') {
+      this.dockToDrawer(drag.viewportId, drag.snapTarget.side, true);
+      return;
+    }
+
     if (drag.snapTarget?.kind === 'edge') {
       this.dockToEdge(drag.viewportId, drag.snapTarget.edge);
       return;
@@ -417,7 +603,7 @@ export class LayoutService {
       return;
     }
 
-    if (drag.source === 'docked') {
+    if (drag.source === 'docked' || drag.source === 'drawer') {
       this.floatViewport(drag.viewportId, {
         x: Math.max(12, drag.currentX - drag.floatOffsetX),
         y: Math.max(12, drag.currentY - drag.floatOffsetY),
@@ -433,14 +619,23 @@ export class LayoutService {
     const state = useLayoutStore.getState();
     const allViewports = Object.values(state.viewports);
     let nextRoot: DockNode | null = null;
+    let nextLeft = createInitialLeftDrawer();
+    let nextRight = createInitialRightDrawer();
 
     const terminals = allViewports.filter((v) => v.typeId === 'terminal.viewport');
-    const hosts = allViewports.filter((v) => v.typeId === 'hosts.manager');
+    const leftDefaults = allViewports.filter(
+      (v) =>
+        v.typeId === 'hosts.manager' ||
+        v.typeId === 'snippets.panel' ||
+        v.typeId === 'history.panel',
+    );
     const monitors = allViewports.filter((v) => v.typeId === 'monitor.panel');
     const others = allViewports.filter(
       (v) =>
         v.typeId !== 'terminal.viewport' &&
         v.typeId !== 'hosts.manager' &&
+        v.typeId !== 'snippets.panel' &&
+        v.typeId !== 'history.panel' &&
         v.typeId !== 'monitor.panel',
     );
 
@@ -452,12 +647,20 @@ export class LayoutService {
         nextRoot = dockViewportInGroup(nextRoot, term.id, grp.id, 'center');
       }
     }
-    for (const h of hosts) {
-      nextRoot = dockViewportAtEdge(nextRoot, h.id, 'left', 0.21);
+
+    for (const v of leftDefaults) {
+      nextLeft = insertViewportIntoDrawer(nextLeft, v.id, v.typeId === 'hosts.manager');
     }
+    if (nextLeft.viewportIds.length > 0 && !nextLeft.activeViewportId) {
+      nextLeft.activeViewportId = nextLeft.viewportIds[0];
+    }
+    nextLeft.open = nextLeft.viewportIds.length > 0;
+
     for (const m of monitors) {
-      nextRoot = dockViewportAtEdge(nextRoot, m.id, 'right', 0.76);
+      nextRight = insertViewportIntoDrawer(nextRight, m.id, true);
     }
+    nextRight.open = nextRight.viewportIds.length > 0;
+
     for (const o of others) {
       const desc = harnessKernel.getViewportDescriptor(o.typeId);
       const edge =
@@ -471,6 +674,8 @@ export class LayoutService {
     }
 
     useLayoutStore.setState({
+      leftDrawer: nextLeft,
+      rightDrawer: nextRight,
       dockRoot: nextRoot,
       floating: [],
       maximizedViewportId: null,
@@ -480,6 +685,8 @@ export class LayoutService {
   resetForTesting(): void {
     useLayoutStore.setState({
       viewports: {},
+      leftDrawer: createInitialLeftDrawer(),
+      rightDrawer: createInitialRightDrawer(),
       dockRoot: null,
       floating: [],
       activeViewportId: null,

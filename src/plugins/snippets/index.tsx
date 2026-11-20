@@ -2,7 +2,7 @@ import React from 'react';
 import { Code2 } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
+import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
 import type { Snippet } from '../../types';
 import { snippetsClient } from './snippetsClient';
 import { SnippetsViewport } from './SnippetsViewport';
@@ -10,9 +10,7 @@ import { SnippetsViewport } from './SnippetsViewport';
 export const SNIPPETS_VIEWPORT_TYPE = 'snippets.panel';
 
 const SnippetsTopBarButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore((s) =>
-    Object.values(s.viewports).some((v) => v.typeId === SNIPPETS_VIEWPORT_TYPE),
-  );
+  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(SNIPPETS_VIEWPORT_TYPE));
   return (
     <button
       type="button"
@@ -39,7 +37,7 @@ export const snippetsPlugin: PluginDefinition = {
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
 
-  async activate(ctx) {
+  activate(ctx) {
     const shell = ctx.inject<ShellService>('core:shell');
     const layout = ctx.inject<LayoutService>('core:layout');
 
@@ -47,7 +45,7 @@ export const snippetsPlugin: PluginDefinition = {
       typeId: SNIPPETS_VIEWPORT_TYPE,
       title: 'Snippets',
       icon: Code2,
-      defaultDock: 'left',
+      defaultDock: 'left-drawer',
       defaultFloatSize: { width: 340, height: 460 },
       singleton: true,
       component: SnippetsViewport,
@@ -58,7 +56,7 @@ export const snippetsPlugin: PluginDefinition = {
         typeId: SNIPPETS_VIEWPORT_TYPE,
         pluginId: ctx.pluginId,
         title: 'Snippets',
-        preferredDock: 'left',
+        preferredDock: 'left-drawer',
       });
     };
 
@@ -97,6 +95,6 @@ export const snippetsPlugin: PluginDefinition = {
       dynDisposers = [];
     });
 
-    await snippetsClient.load().catch(() => {});
+    void snippetsClient.load().catch(() => {});
   },
 };

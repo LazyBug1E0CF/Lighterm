@@ -8,7 +8,15 @@ export type SlotName =
   | 'host:actions'
   | 'settings:tabs';
 
-export type PreferredDockPosition = 'left' | 'right' | 'top' | 'bottom' | 'center' | 'float';
+export type PreferredDockPosition =
+  | 'left-drawer'
+  | 'right-drawer'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'center'
+  | 'float';
 
 export interface ViewportInstanceRef {
   id: string;

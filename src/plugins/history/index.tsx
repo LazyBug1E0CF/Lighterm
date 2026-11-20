@@ -2,7 +2,7 @@ import React from 'react';
 import { History } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
+import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
 import type { HistoryEntry } from '../../types';
 import { CommandTracker } from '../../utils/commandTracker';
 import { historyClient } from './historyClient';
@@ -11,9 +11,7 @@ import { HistoryViewport } from './HistoryViewport';
 export const HISTORY_VIEWPORT_TYPE = 'history.panel';
 
 const HistoryTopBarButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore((s) =>
-    Object.values(s.viewports).some((v) => v.typeId === HISTORY_VIEWPORT_TYPE),
-  );
+  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(HISTORY_VIEWPORT_TYPE));
   return (
     <button
       type="button"
@@ -40,7 +38,7 @@ export const historyPlugin: PluginDefinition = {
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
 
-  async activate(ctx) {
+  activate(ctx) {
     const shell = ctx.inject<ShellService>('core:shell');
     const layout = ctx.inject<LayoutService>('core:layout');
 
@@ -75,7 +73,7 @@ export const historyPlugin: PluginDefinition = {
       typeId: HISTORY_VIEWPORT_TYPE,
       title: 'Command History',
       icon: History,
-      defaultDock: 'left',
+      defaultDock: 'left-drawer',
       defaultFloatSize: { width: 340, height: 460 },
       singleton: true,
       component: HistoryViewport,
@@ -86,7 +84,7 @@ export const historyPlugin: PluginDefinition = {
         typeId: HISTORY_VIEWPORT_TYPE,
         pluginId: ctx.pluginId,
         title: 'Command History',
-        preferredDock: 'left',
+        preferredDock: 'left-drawer',
       });
     };
 
@@ -129,6 +127,6 @@ export const historyPlugin: PluginDefinition = {
       dynDisposers = [];
     });
 
-    await historyClient.load().catch(() => {});
+    void historyClient.load().catch(() => {});
   },
 };

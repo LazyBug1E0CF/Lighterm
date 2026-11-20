@@ -1,8 +1,16 @@
 import type { PreferredDockPosition, ViewportInstanceRef } from '../harness/types';
 import type { SplitDirection } from '../types';
 
+export type DrawerSide = 'left' | 'right';
 export type DockEdge = 'left' | 'right' | 'top' | 'bottom';
 export type DockZone = 'center' | DockEdge;
+
+export interface DrawerState {
+  open: boolean;
+  width: number;
+  viewportIds: string[];
+  activeViewportId: string | null;
+}
 
 export type ViewportInstance = ViewportInstanceRef;
 
@@ -37,12 +45,13 @@ export interface FloatingViewportItem extends FloatingRect {
 }
 
 export type SnapTarget =
+  | { kind: 'drawer'; side: DrawerSide }
   | { kind: 'edge'; edge: DockEdge }
   | { kind: 'group'; groupId: string; zone: DockZone };
 
 export interface ViewportDragState {
   viewportId: string;
-  source: 'docked' | 'floating';
+  source: 'docked' | 'floating' | 'drawer';
   startX: number;
   startY: number;
   currentX: number;
@@ -60,6 +69,7 @@ export interface OpenViewportOptions {
   title: string;
   params?: Record<string, unknown>;
   preferredDock?: PreferredDockPosition;
+  activateDrawer?: boolean;
   targetGroupId?: string;
   splitZone?: DockZone;
   floatRect?: Partial<FloatingRect>;

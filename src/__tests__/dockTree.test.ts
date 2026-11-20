@@ -79,4 +79,54 @@ describe('Universal DockTree & LayoutService', () => {
     expect(useLayoutStore.getState().floating).toHaveLength(0);
     expect(findGroupContainingViewport(useLayoutStore.getState().dockRoot, vp1.id)).not.toBeNull();
   });
+
+  it('supports collapsible/resizable left and right drawers and moves viewports uniquely across drawers, floating, and dockRoot', () => {
+    const vpA = layoutService.openViewport({
+      typeId: 'hosts.manager',
+      pluginId: 'lighterm.hosts',
+      title: 'SSH Hosts',
+      preferredDock: 'left-drawer',
+    });
+    const vpB = layoutService.openViewport({
+      typeId: 'snippets.panel',
+      pluginId: 'lighterm.snippets',
+      title: 'Snippets',
+      preferredDock: 'left-drawer',
+      activateDrawer: false,
+    });
+
+    expect(useLayoutStore.getState().leftDrawer.viewportIds).toEqual([vpA.id, vpB.id]);
+    expect(useLayoutStore.getState().leftDrawer.activeViewportId).toBe(vpA.id);
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+
+    // Clicking active rail item collapses drawer; clicking again re-expands
+    layoutService.selectDrawerViewport('left', vpA.id);
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(false);
+    layoutService.selectDrawerViewport('left', vpB.id);
+    expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
+    expect(useLayoutStore.getState().leftDrawer.activeViewportId).toBe(vpB.id);
+
+    // Clamp drawer width within [200, 600]
+    layoutService.setDrawerWidth('left', 100);
+    expect(useLayoutStore.getState().leftDrawer.width).toBe(200);
+    layoutService.setDrawerWidth('right', 900);
+    expect(useLayoutStore.getState().rightDrawer.width).toBe(600);
+
+    // Move vpB to right drawer -> detached from leftDrawer cleanly
+    layoutService.dockToDrawer(vpB.id, 'right');
+    expect(useLayoutStore.getState().leftDrawer.viewportIds).toEqual([vpA.id]);
+    expect(useLayoutStore.getState().rightDrawer.viewportIds).toEqual([vpB.id]);
+    expect(layoutService.getViewportLocation(vpB.id)).toBe('right-drawer');
+
+    // Float vpB -> detached from rightDrawer (which collapses since empty)
+    layoutService.floatViewport(vpB.id);
+    expect(useLayoutStore.getState().rightDrawer.viewportIds).toEqual([]);
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(false);
+    expect(layoutService.getViewportLocation(vpB.id)).toBe('floating');
+
+    // Dock vpB back to center -> detached from floating
+    layoutService.dockToEdge(vpB.id, 'bottom');
+    expect(useLayoutStore.getState().floating).toHaveLength(0);
+    expect(layoutService.getViewportLocation(vpB.id)).toBe('docked');
+  });
 });

@@ -8,6 +8,7 @@ use lighterm_plugin_history::HistoryPlugin;
 use lighterm_plugin_monitor::MonitorPlugin;
 use lighterm_plugin_sftp::SftpPlugin;
 use lighterm_plugin_snippets::SnippetsPlugin;
+use tauri::Manager;
 
 #[cfg(target_os = "linux")]
 fn install_linux_gtk_log_filter() {
@@ -69,7 +70,21 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState { core })
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                if let Some(win) = handle.get_webview_window("main") {
+                    if !win.is_visible().unwrap_or(true) {
+                        let _ = win.show();
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            commands::window_ready,
+            commands::window_enable_transparency,
             commands::terminal_create_local,
             commands::terminal_create_ssh,
             commands::terminal_write,

@@ -2,16 +2,14 @@ import React from 'react';
 import { Activity } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
-import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
+import { type LayoutService, layoutService, useLayoutStore } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { MonitorViewport } from './MonitorViewport';
 
 export const MONITOR_VIEWPORT_TYPE = 'monitor.panel';
 
 const MonitorTopBarButton: React.FC<{ onToggle: () => void }> = ({ onToggle }) => {
-  const isOpen = useLayoutStore((s) =>
-    Object.values(s.viewports).some((v) => v.typeId === MONITOR_VIEWPORT_TYPE),
-  );
+  const isOpen = useLayoutStore(() => layoutService.isViewportOpenOnScreen(MONITOR_VIEWPORT_TYPE));
   return (
     <button
       type="button"
@@ -45,7 +43,7 @@ export const monitorPlugin: PluginDefinition = {
       typeId: MONITOR_VIEWPORT_TYPE,
       title: 'System Status',
       icon: Activity,
-      defaultDock: 'right',
+      defaultDock: 'right-drawer',
       defaultFloatSize: { width: 320, height: 540 },
       singleton: true,
       component: MonitorViewport,
@@ -56,7 +54,7 @@ export const monitorPlugin: PluginDefinition = {
         typeId: MONITOR_VIEWPORT_TYPE,
         pluginId: ctx.pluginId,
         title: 'System Status',
-        preferredDock: 'right',
+        preferredDock: 'right-drawer',
       });
     };
 

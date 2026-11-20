@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "tailwindcss" source(".");
 @import "@xterm/xterm/css/xterm.css";
 
 :root {
@@ -21,6 +21,8 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  user-select: none;
   background: transparent;
   color: var(--text-primary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;

@@ -6,6 +6,7 @@ import { SettingsModal } from './components/settings/SettingsModal';
 import { PluginManagerModal } from './components/shell/PluginManagerModal';
 import { ShellStatusBar } from './components/shell/ShellStatusBar';
 import { ShellTopBar } from './components/shell/ShellTopBar';
+import { invokeTauri, isTauriRuntime } from './core/ipc';
 import { shellService, useShellStore } from './core/shellService';
 import { HarnessProvider } from './harness/HarnessContext';
 import { harnessKernel } from './harness/HarnessKernel';
@@ -20,6 +21,25 @@ const LightermShell: React.FC = () => {
 
   useEffect(() => {
     void bootstrapLightermHarness();
+  }, []);
+
+  // Reveal the window right after React commits DOM, then enable CSS-controlled transparency post-paint.
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let rafId = 0;
+    const timerId = window.setTimeout(() => {
+      void invokeTauri('window_ready')
+        .then(() => {
+          rafId = requestAnimationFrame(() => {
+            void invokeTauri('window_enable_transparency').catch(() => {});
+          });
+        })
+        .catch(() => {});
+    }, 0);
+    return () => {
+      window.clearTimeout(timerId);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   // Sync theme CSS variables & opacity

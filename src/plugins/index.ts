@@ -1,11 +1,11 @@
 import { shellService } from '../core/shellService';
 import { harnessKernel } from '../harness/HarnessKernel';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
-import { historyPlugin } from './history';
+import { historyPlugin, HISTORY_VIEWPORT_TYPE } from './history';
 import { HOSTS_VIEWPORT_TYPE, hostsPlugin } from './hosts';
 import { MONITOR_VIEWPORT_TYPE, monitorPlugin } from './monitor';
 import { sftpPlugin } from './sftp';
-import { snippetsPlugin } from './snippets';
+import { snippetsPlugin, SNIPPETS_VIEWPORT_TYPE } from './snippets';
 import { terminalPlugin, TERMINAL_VIEWPORT_TYPE } from './terminal';
 
 let bootstrapPromise: Promise<void> | null = null;
@@ -22,45 +22,73 @@ export function registerBuiltinPlugins(kernel = harnessKernel): void {
   kernel.register(historyPlugin);
 }
 
+// Populate plugin metadata immediately on module load before the first React render.
+registerBuiltinPlugins(harnessKernel);
+
 export async function bootstrapLightermHarness(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
 
   bootstrapPromise = (async () => {
     registerBuiltinPlugins(harnessKernel);
-    await shellService.initialize();
-    await harnessKernel.start();
+    const initTask = shellService.initialize();
+    const startTask = harnessKernel.start();
 
+    // Built-in plugins activate synchronously on tick 0, so drawer viewports can populate immediately.
     const layoutState = useLayoutStore.getState();
     if (Object.keys(layoutState.viewports).length === 0) {
-      if (shellService.listSessions().length === 0) {
-        await shellService.createLocalSession();
-      }
-
       if (harnessKernel.isPluginActive(hostsPlugin.id)) {
-        const hostsVp = layoutService.openViewport({
+        layoutService.openViewport({
           typeId: HOSTS_VIEWPORT_TYPE,
           pluginId: hostsPlugin.id,
           title: 'SSH Hosts',
-          preferredDock: 'left',
+          preferredDock: 'left-drawer',
+          activateDrawer: true,
         });
-        layoutService.dockToEdge(hostsVp.id, 'left', 0.21);
+      }
+
+      if (harnessKernel.isPluginActive(snippetsPlugin.id)) {
+        layoutService.openViewport({
+          typeId: SNIPPETS_VIEWPORT_TYPE,
+          pluginId: snippetsPlugin.id,
+          title: 'Snippets',
+          preferredDock: 'left-drawer',
+          activateDrawer: false,
+        });
+      }
+
+      if (harnessKernel.isPluginActive(historyPlugin.id)) {
+        layoutService.openViewport({
+          typeId: HISTORY_VIEWPORT_TYPE,
+          pluginId: historyPlugin.id,
+          title: 'Command History',
+          preferredDock: 'left-drawer',
+          activateDrawer: false,
+        });
       }
 
       if (harnessKernel.isPluginActive(monitorPlugin.id)) {
-        const monVp = layoutService.openViewport({
+        layoutService.openViewport({
           typeId: MONITOR_VIEWPORT_TYPE,
           pluginId: monitorPlugin.id,
           title: 'System Status',
-          preferredDock: 'right',
+          preferredDock: 'right-drawer',
+          activateDrawer: true,
         });
-        layoutService.dockToEdge(monVp.id, 'right', 0.76);
-      }
-
-      const firstTerminal = layoutService.findViewportsByType(TERMINAL_VIEWPORT_TYPE)[0];
-      if (firstTerminal) {
-        layoutService.setActiveViewport(firstTerminal.id);
       }
     }
+
+    await startTask;
+
+    if (shellService.listSessions().length === 0) {
+      await shellService.createLocalSession();
+    }
+
+    const firstTerminal = layoutService.findViewportsByType(TERMINAL_VIEWPORT_TYPE)[0];
+    if (firstTerminal) {
+      layoutService.setActiveViewport(firstTerminal.id);
+    }
+
+    await initTask;
   })();
 
   return bootstrapPromise;

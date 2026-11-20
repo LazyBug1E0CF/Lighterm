@@ -112,7 +112,7 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({ group, showCompass
             >
               <PictureInPicture2 className="w-3 h-3" />
             </button>
-            <ViewportPositionMenu viewportId={activeVp.id} isFloating={false} />
+            <ViewportPositionMenu viewportId={activeVp.id} />
           </div>
         )}
       </div>

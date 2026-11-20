@@ -118,7 +118,7 @@ export const FloatingViewportWindow: React.FC<{ item: FloatingViewportItem }> = 
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0">
-          <ViewportPositionMenu viewportId={viewport.id} isFloating />
+          <ViewportPositionMenu viewportId={viewport.id} />
           <button
             type="button"
             data-no-drag="true"
