@@ -1,5 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Eye, EyeOff, FolderSearch, Loader2, X, XCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  FolderSearch,
+  Loader2,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { pickOpenFile } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
 import type { ConnectionTestResult, HostConfig } from '../../types';
@@ -9,9 +19,14 @@ const COLOR_SWATCHES = ['#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff', '#e0af68', '
 export const HostFormModal: React.FC = () => {
   const hostModalOpen = useShellStore((s) => s.hostModalOpen);
   const editingHost = useShellStore((s) => s.editingHost);
+  const hosts = useShellStore((s) => s.hosts);
 
   const [name, setName] = useState('');
   const [group, setGroup] = useState('Production');
+  const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
+  const [groupFilterActive, setGroupFilterActive] = useState(false);
+  const [highlightedIdx, setHighlightedIdx] = useState(-1);
+  const groupComboboxRef = useRef<HTMLDivElement | null>(null);
   const [host, setHost] = useState('');
   const [port, setPort] = useState('22');
   const [username, setUsername] = useState('root');
@@ -31,6 +46,9 @@ export const HostFormModal: React.FC = () => {
   useEffect(() => {
     if (!hostModalOpen) return;
     setTestResult(null);
+    setGroupDropdownOpen(false);
+    setGroupFilterActive(false);
+    setHighlightedIdx(-1);
     if (editingHost) {
       setName(editingHost.name);
       setGroup(editingHost.group || 'Default');
@@ -69,7 +87,43 @@ export const HostFormModal: React.FC = () => {
     }
   }, [hostModalOpen, editingHost]);
 
+  useEffect(() => {
+    if (!groupDropdownOpen) return;
+    const handleOutsideMouseDown = (e: MouseEvent) => {
+      if (groupComboboxRef.current?.contains(e.target as Node)) return;
+      setGroupDropdownOpen(false);
+      setHighlightedIdx(-1);
+    };
+    window.addEventListener('mousedown', handleOutsideMouseDown);
+    return () => window.removeEventListener('mousedown', handleOutsideMouseDown);
+  }, [groupDropdownOpen]);
+
+  const existingGroups = useMemo(() => {
+    const unique = new Set<string>();
+    for (const h of hosts) {
+      unique.add(h.group.trim() || 'Default');
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [hosts]);
+
+  const filteredGroups = useMemo(() => {
+    if (!groupFilterActive || !group.trim()) {
+      return existingGroups;
+    }
+    const q = group.trim().toLowerCase();
+    return existingGroups.filter((g) => g.toLowerCase().includes(q));
+  }, [existingGroups, group, groupFilterActive]);
+
+  const showGroupDropdown = groupDropdownOpen && filteredGroups.length > 0;
+
   if (!hostModalOpen) return null;
+
+  const selectGroup = (value: string) => {
+    setGroup(value);
+    setGroupFilterActive(false);
+    setGroupDropdownOpen(false);
+    setHighlightedIdx(-1);
+  };
 
   const buildConfig = (): HostConfig => ({
     id: editingHost?.id ?? '',
@@ -163,16 +217,139 @@ export const HostFormModal: React.FC = () => {
                 className="w-full h-8 px-2.5 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
               />
             </label>
-            <label className="block">
-              <span className="text-[var(--text-muted)] block mb-1">Group</span>
-              <input
-                type="text"
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                placeholder="Production"
-                className="w-full h-8 px-2.5 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
-              />
-            </label>
+            <div ref={groupComboboxRef} className="block relative">
+              <label htmlFor="host-form-group" className="text-[var(--text-muted)] block mb-1">
+                Group
+              </label>
+              <div className="relative">
+                <input
+                  id="host-form-group"
+                  type="text"
+                  role="combobox"
+                  autoComplete="off"
+                  aria-autocomplete="list"
+                  aria-expanded={showGroupDropdown}
+                  aria-controls={existingGroups.length > 0 ? 'host-form-group-listbox' : undefined}
+                  value={group}
+                  onFocus={() => {
+                    if (existingGroups.length > 0) {
+                      setGroupFilterActive(false);
+                      setGroupDropdownOpen(true);
+                      setHighlightedIdx(-1);
+                    }
+                  }}
+                  onChange={(e) => {
+                    setGroup(e.target.value);
+                    if (existingGroups.length > 0) {
+                      setGroupFilterActive(true);
+                      setGroupDropdownOpen(true);
+                      setHighlightedIdx(-1);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown' && existingGroups.length > 0) {
+                      e.preventDefault();
+                      if (!groupDropdownOpen) {
+                        setGroupFilterActive(false);
+                        setGroupDropdownOpen(true);
+                        setHighlightedIdx(0);
+                      } else if (filteredGroups.length > 0) {
+                        setHighlightedIdx((prev) => (prev + 1) % filteredGroups.length);
+                      }
+                    } else if (e.key === 'ArrowUp' && showGroupDropdown) {
+                      e.preventDefault();
+                      setHighlightedIdx((prev) =>
+                        prev <= 0 ? filteredGroups.length - 1 : prev - 1,
+                      );
+                    } else if (
+                      e.key === 'Enter' &&
+                      showGroupDropdown &&
+                      highlightedIdx >= 0 &&
+                      highlightedIdx < filteredGroups.length
+                    ) {
+                      e.preventDefault();
+                      selectGroup(filteredGroups[highlightedIdx]);
+                    } else if (e.key === 'Escape' && groupDropdownOpen) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setGroupDropdownOpen(false);
+                      setHighlightedIdx(-1);
+                    } else if (e.key === 'Tab') {
+                      setGroupDropdownOpen(false);
+                      setHighlightedIdx(-1);
+                    }
+                  }}
+                  placeholder="Production"
+                  className={`w-full h-8 ${
+                    existingGroups.length > 0 ? 'pl-2.5 pr-8' : 'px-2.5'
+                  } rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--accent)] outline-none`}
+                />
+                {existingGroups.length > 0 && (
+                  <button
+                    type="button"
+                    aria-label="Toggle Existing Groups"
+                    aria-expanded={showGroupDropdown}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      if (groupDropdownOpen) {
+                        setGroupDropdownOpen(false);
+                        setHighlightedIdx(-1);
+                      } else {
+                        setGroupFilterActive(false);
+                        setGroupDropdownOpen(true);
+                        setHighlightedIdx(-1);
+                      }
+                    }}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  >
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 transition-transform ${
+                        showGroupDropdown ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+                )}
+              </div>
+
+              {showGroupDropdown && (
+                <div
+                  id="host-form-group-listbox"
+                  role="listbox"
+                  aria-label="Existing Groups"
+                  className="absolute left-0 right-0 top-full mt-1 z-30 max-h-44 overflow-y-auto lighterm-scroll py-1 rounded-md border shadow-xl"
+                  style={{
+                    backgroundColor: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                >
+                  {filteredGroups.map((opt, idx) => {
+                    const isSelected = (group.trim() || 'Default') === opt;
+                    const isHighlighted = idx === highlightedIdx;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseEnter={() => setHighlightedIdx(idx)}
+                        onClick={() => selectGroup(opt)}
+                        className={`w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left text-xs transition-colors ${
+                          isHighlighted
+                            ? 'bg-[var(--accent)]/20 text-[var(--text-primary)]'
+                            : 'text-[var(--text-primary)] hover:bg-[var(--bg-app)]/70'
+                        }`}
+                      >
+                        <span className="truncate">{opt}</span>
+                        {isSelected && (
+                          <Check className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-12 gap-3">
