@@ -5,7 +5,7 @@ import { harnessKernel } from '../harness/HarnessKernel';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import { historyPlugin, HISTORY_VIEWPORT_TYPE } from './history';
 import { HOSTS_VIEWPORT_TYPE, hostsPlugin } from './hosts';
-import { MONITOR_VIEWPORT_TYPE, monitorPlugin } from './monitor';
+import { MONITOR_VIEWPORT_TYPE, monitorPanelService, monitorPlugin } from './monitor';
 import { sftpPlugin } from './sftp';
 import { snippetsPlugin, SNIPPETS_VIEWPORT_TYPE } from './snippets';
 import { terminalPlugin, TERMINAL_VIEWPORT_TYPE } from './terminal';
@@ -104,6 +104,7 @@ export function resetLightermHarnessForTesting(): void {
   layoutService.resetForTesting();
   shellService.resetForTesting();
   windowControls.resetForTesting();
+  monitorPanelService.resetForTesting();
 }
 
 export {

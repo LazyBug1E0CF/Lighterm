@@ -3,7 +3,22 @@ import { useShellStore } from '../../core/shellService';
 import type { PluginDefinition } from '../../harness/types';
 import type { LayoutService } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
+import {
+  DEFAULT_MONITOR_PANELS,
+  MONITOR_PANEL_CATALOG,
+  monitorPanelService,
+  useMonitorPanelStore,
+  type MonitorPanelId,
+} from './monitorPanelStore';
 import { MonitorViewport } from './MonitorViewport';
+
+export {
+  DEFAULT_MONITOR_PANELS,
+  MONITOR_PANEL_CATALOG,
+  monitorPanelService,
+  useMonitorPanelStore,
+  type MonitorPanelId,
+};
 
 export const MONITOR_VIEWPORT_TYPE = 'monitor.panel';
 
@@ -57,6 +72,13 @@ export const monitorPlugin: PluginDefinition = {
       group: 'Action',
       label: 'Toggle System Status Panel',
       run: toggle,
+    });
+
+    ctx.registerCommand({
+      id: 'monitor:reset-panels',
+      group: 'Action',
+      label: 'Reset System Status Panels Layout',
+      run: () => monitorPanelService.resetPanels(),
     });
 
     const onKeyDown = (e: KeyboardEvent) => {
