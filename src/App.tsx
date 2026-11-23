@@ -95,6 +95,15 @@ const LightermShell: React.FC = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // Suppress all default browser/webview right-click context menus while preserving custom app menus
+  useEffect(() => {
+    const suppressDefaultContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('contextmenu', suppressDefaultContextMenu, true);
+    return () => window.removeEventListener('contextmenu', suppressDefaultContextMenu, true);
+  }, []);
+
   return (
     <div
       className={`w-screen h-screen flex flex-col overflow-hidden ${

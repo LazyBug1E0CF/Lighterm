@@ -238,4 +238,32 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
       expect(screen.getByLabelText('Split Horizontally')).toBeTruthy();
     });
   }, 15000);
+
+  it('suppresses default browser context menus globally while preserving custom app context menus', async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(useShellStore.getState().initialized).toBe(true);
+    });
+
+    const targets: EventTarget[] = [
+      document.body,
+      screen.getByRole('banner'),
+      screen.getByLabelText('Quick SSH Connect'),
+      screen.getByLabelText('Left Side Drawer'),
+    ];
+
+    for (const target of targets) {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      const notPrevented = target.dispatchEvent(event);
+      expect(notPrevented).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+    }
+
+    const workspacesTablist = screen.getByRole('tablist', { name: 'Workspaces' });
+    const ws1Tab = within(workspacesTablist).getByRole('tab', { name: /Workspace 1/i });
+    fireEvent.contextMenu(ws1Tab, { clientX: 120, clientY: 28 });
+
+    expect(screen.getByRole('menu', { name: 'Workspace Tab Context Menu' })).toBeTruthy();
+  });
 });
