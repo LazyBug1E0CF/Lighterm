@@ -1,5 +1,14 @@
 export type LayoutTransitionKind = 'layout' | 'workspace';
 
+interface ExitGhostSnapshot {
+  clone: HTMLElement;
+  rect: DOMRect;
+  viewportId?: string;
+  fromTransform: string;
+  scrollOffsets: { scrollTop: number; scrollLeft: number }[];
+  canvases: HTMLCanvasElement[];
+}
+
 export interface LayoutAnimationSnapshot {
   seq: number;
   kind: LayoutTransitionKind;
@@ -9,6 +18,8 @@ export interface LayoutAnimationSnapshot {
   drawerRects: Map<string, DOMRect>;
   tabRects: Map<string, DOMRect>;
   stageGroupCount: number;
+  drawerExitSnapshots: Map<'left' | 'right', ExitGhostSnapshot>;
+  bottomExitSnapshots: Map<string, ExitGhostSnapshot>;
 }
 
 interface ActiveAnimRecord {
@@ -20,10 +31,172 @@ interface ActiveAnimRecord {
 
 const FLIP_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const activeAnimations = new WeakMap<HTMLElement, ActiveAnimRecord>();
+const activeExitGhosts = new Map<string, { wrapper: HTMLElement; anim: Animation }>();
 
 let snapshotSeq = 0;
 let pendingSnapshot: LayoutAnimationSnapshot | null = null;
 let latestSnapshot: LayoutAnimationSnapshot | null = null;
+
+function clearExitGhost(key: string): void {
+  const existing = activeExitGhosts.get(key);
+  if (!existing) return;
+  activeExitGhosts.delete(key);
+  try {
+    existing.anim.cancel();
+  } catch {
+    // Ignore animation cancel errors during teardown
+  }
+  existing.wrapper.remove();
+}
+
+function clearAllExitGhosts(): void {
+  for (const key of Array.from(activeExitGhosts.keys())) {
+    clearExitGhost(key);
+  }
+}
+
+const GHOST_STRIP_ATTRS = [
+  'id',
+  'role',
+  'aria-label',
+  'tabindex',
+  'data-flip-id',
+  'data-group-container',
+  'data-group-slot',
+  'data-dock-edge',
+  'data-drawer-side',
+  'data-drawer-slot',
+  'data-drawer-viewport-id',
+  'data-drop-drawer',
+  'data-drop-group',
+  'data-drop-edge',
+  'data-flip-tab-id',
+  'data-viewport-id',
+  'data-viewport-type',
+];
+
+function stripGhostAttributes(el: Element): void {
+  for (const attr of GHOST_STRIP_ATTRS) {
+    el.removeAttribute(attr);
+  }
+}
+
+function sanitizeGhostClone(source: HTMLElement): HTMLElement {
+  const clone = source.cloneNode(true) as HTMLElement;
+  stripGhostAttributes(clone);
+  clone.setAttribute('aria-hidden', 'true');
+  clone.style.pointerEvents = 'none';
+  clone.style.userSelect = 'none';
+  for (const descendant of clone.querySelectorAll('*')) {
+    stripGhostAttributes(descendant);
+  }
+  return clone;
+}
+
+function captureExitSnapshot(
+  el: HTMLElement,
+  slotSelector: string,
+  viewportId?: string,
+): ExitGhostSnapshot | null {
+  if (typeof el.animate !== 'function') return null;
+  const slotEl = el.closest<HTMLElement>(slotSelector);
+  const rect = (slotEl ?? el).getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+
+  const computed =
+    typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+      ? window.getComputedStyle(el).transform
+      : 'none';
+  const fromTransform = computed && computed !== 'none' ? computed : 'translate3d(0, 0, 0)';
+  const scrollOffsets = Array.from(el.querySelectorAll<HTMLElement>('.lighterm-scroll')).map(
+    (node) => ({ scrollTop: node.scrollTop, scrollLeft: node.scrollLeft }),
+  );
+  const canvases = Array.from(el.querySelectorAll('canvas'));
+
+  return {
+    clone: sanitizeGhostClone(el),
+    rect,
+    viewportId,
+    fromTransform,
+    scrollOffsets,
+    canvases,
+  };
+}
+
+function spawnExitSlideGhost(
+  key: string,
+  hostEl: HTMLElement,
+  entry: ExitGhostSnapshot,
+  toTransform: string,
+  ghostTag: string,
+  addTopHairline = false,
+): void {
+  clearExitGhost(key);
+  if (typeof entry.clone.animate !== 'function') return;
+
+  const hostRect = hostEl.getBoundingClientRect();
+  const wrapper = document.createElement('div');
+  wrapper.dataset.exitGhost = ghostTag;
+  wrapper.setAttribute('aria-hidden', 'true');
+  wrapper.style.position = 'absolute';
+  wrapper.style.left = `${entry.rect.left - hostRect.left}px`;
+  wrapper.style.top = `${entry.rect.top - hostRect.top}px`;
+  wrapper.style.width = `${entry.rect.width}px`;
+  wrapper.style.height = `${entry.rect.height}px`;
+  wrapper.style.overflow = 'hidden';
+  wrapper.style.pointerEvents = 'none';
+  wrapper.style.zIndex = '15';
+
+  entry.clone.style.width = '100%';
+  entry.clone.style.height = '100%';
+  entry.clone.style.margin = '0';
+  entry.clone.style.pointerEvents = 'none';
+  if (addTopHairline) {
+    entry.clone.style.boxShadow = 'inset 0 1px 0 var(--border-subtle)';
+  }
+
+  wrapper.appendChild(entry.clone);
+  hostEl.appendChild(wrapper);
+
+  const clonedScrolls = entry.clone.querySelectorAll<HTMLElement>('.lighterm-scroll');
+  clonedScrolls.forEach((node, idx) => {
+    const saved = entry.scrollOffsets[idx];
+    if (saved) {
+      node.scrollTop = saved.scrollTop;
+      node.scrollLeft = saved.scrollLeft;
+    }
+  });
+
+  const clonedCanvases = entry.clone.querySelectorAll('canvas');
+  clonedCanvases.forEach((dst, idx) => {
+    const src = entry.canvases[idx];
+    if (!src || src.width <= 0 || src.height <= 0) return;
+    try {
+      dst.width = src.width;
+      dst.height = src.height;
+      const ctx = dst.getContext('2d');
+      ctx?.drawImage(src, 0, 0);
+    } catch {
+      // Ignore canvas snapshot errors
+    }
+  });
+
+  const anim = entry.clone.animate(
+    [{ transform: entry.fromTransform }, { transform: toTransform }],
+    { duration: 220, easing: FLIP_EASING },
+  );
+
+  const record = { wrapper, anim };
+  activeExitGhosts.set(key, record);
+  const cleanup = () => {
+    if (activeExitGhosts.get(key) === record) {
+      activeExitGhosts.delete(key);
+    }
+    wrapper.remove();
+  };
+  anim.onfinish = cleanup;
+  anim.oncancel = cleanup;
+}
 
 function prefersReducedMotion(): boolean {
   return (
@@ -124,6 +297,35 @@ export function captureLayoutSnapshot(
 
   const groupRects = collectRectMap('[data-group-container]', 'groupContainer');
   const drawerRects = collectRectMap('[data-drawer-side]', 'drawerSide');
+
+  const drawerExitSnapshots = new Map<'left' | 'right', ExitGhostSnapshot>();
+  const bottomExitSnapshots = new Map<string, ExitGhostSnapshot>();
+  if (typeof document !== 'undefined') {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-drawer-side]')) {
+      const side = el.dataset.drawerSide;
+      if (side !== 'left' && side !== 'right') continue;
+      const exitSnap = captureExitSnapshot(
+        el,
+        '[data-drawer-slot]',
+        el.dataset.drawerViewportId,
+      );
+      if (exitSnap) {
+        drawerExitSnapshots.set(side, exitSnap);
+      }
+    }
+
+    for (const el of document.querySelectorAll<HTMLElement>(
+      '[data-group-slot][data-dock-edge="bottom"] [data-group-container]',
+    )) {
+      const groupId = el.dataset.groupContainer;
+      if (!groupId) continue;
+      const exitSnap = captureExitSnapshot(el, '[data-group-slot]', el.dataset.flipId);
+      if (exitSnap) {
+        bottomExitSnapshots.set(groupId, exitSnap);
+      }
+    }
+  }
+
   const snap: LayoutAnimationSnapshot = {
     seq: ++snapshotSeq,
     kind,
@@ -133,6 +335,8 @@ export function captureLayoutSnapshot(
     drawerRects,
     tabRects: collectRectMap('[data-flip-tab-id]', 'flipTabId'),
     stageGroupCount: groupRects.size,
+    drawerExitSnapshots,
+    bottomExitSnapshots,
   };
 
   pendingSnapshot = snap;
@@ -152,12 +356,13 @@ export function getLatestLayoutSnapshot(): LayoutAnimationSnapshot | null {
 }
 
 export function resetLayoutAnimatorForTesting(): void {
+  clearAllExitGhosts();
   snapshotSeq = 0;
   pendingSnapshot = null;
   latestSnapshot = null;
 }
 
-/** Plays GPU FLIP pane, drawer slide-out, tab-pill, and workspace transitions. */
+/** Plays GPU FLIP pane, drawer slide-in/out, bottom slide-up/down, tab-pill, and workspace transitions. */
 export function playLayoutAnimation(
   rootEl: HTMLElement | null,
   stageEl: HTMLElement | null,
@@ -167,6 +372,7 @@ export function playLayoutAnimation(
   if (!rootEl || !snapshot || prefersReducedMotion()) return;
 
   if (snapshot.kind === 'workspace') {
+    clearAllExitGhosts();
     if (stageEl && typeof stageEl.animate === 'function') {
       const baseStyle = cancelAndRestore(stageEl);
       const anim = stageEl.animate(
@@ -194,6 +400,15 @@ export function playLayoutAnimation(
     return;
   }
 
+  const currentDrawerSides = new Set<string>();
+  for (const el of rootEl.querySelectorAll<HTMLElement>('[data-drawer-side]')) {
+    if (el.dataset.drawerSide) currentDrawerSides.add(el.dataset.drawerSide);
+  }
+  const drawerStateChanged =
+    currentDrawerSides.size !== snapshot.drawerRects.size ||
+    Array.from(currentDrawerSides).some((side) => !snapshot.drawerRects.has(side));
+  const currentGroupCount = rootEl.querySelectorAll('[data-group-container]').length;
+
   const animatedContainers = new Set<HTMLElement>();
   const elements = rootEl.querySelectorAll<HTMLElement>('[data-flip-id]');
 
@@ -212,18 +427,20 @@ export function playLayoutAnimation(
     if (first) {
       const dx = first.left - last.left;
       const dy = first.top - last.top;
-      const sx = first.width / last.width;
-      const sy = first.height / last.height;
 
-      if (
-        Math.abs(dx) < 1 &&
-        Math.abs(dy) < 1 &&
-        Math.abs(sx - 1) < 0.01 &&
-        Math.abs(sy - 1) < 0.01
-      ) {
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
         if (!snapshot.paneRects.has(id)) {
           animateStationaryViewportFade(el, id);
         }
+        continue;
+      }
+
+      if (
+        drawerStateChanged &&
+        groupId &&
+        snapshot.groupRects.has(groupId) &&
+        currentGroupCount === snapshot.stageGroupCount
+      ) {
         continue;
       }
 
@@ -234,11 +451,8 @@ export function playLayoutAnimation(
       }
 
       const anim = el.animate(
-        [
-          { transform: `translate3d(${dx}px, ${dy}px, 0) scale(${sx}, ${sy})` },
-          { transform: 'translate3d(0, 0, 0) scale(1, 1)' },
-        ],
-        { duration: 260, easing: FLIP_EASING },
+        [{ transform: `translate3d(${dx}px, ${dy}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+        { duration: 220, easing: FLIP_EASING },
       );
       trackAnimation(el, anim, baseStyle);
     } else {
@@ -247,6 +461,74 @@ export function playLayoutAnimation(
       }
 
       animatedContainers.add(el);
+      const groupSlotEl = el.closest<HTMLElement>('[data-group-slot]');
+      if (groupSlotEl?.dataset.dockEdge === 'bottom' && !snapshot.tabRects.get(id)) {
+        clearExitGhost('dock:bottom');
+        const prevSlotOverflow = groupSlotEl.style.overflow;
+        const prevSlotZIndex = groupSlotEl.style.zIndex;
+        groupSlotEl.style.overflow = 'hidden';
+        groupSlotEl.style.zIndex = '15';
+
+        const pinnedSlots: Array<{
+          el: HTMLElement;
+          prevHeight: string;
+          pinnedHeight: string;
+        }> = [];
+        const scopeEl = stageEl ?? rootEl;
+        for (const slotEl of scopeEl.querySelectorAll<HTMLElement>('[data-group-slot]')) {
+          if (slotEl === groupSlotEl) continue;
+          const slotGroupId = slotEl.dataset.groupSlot;
+          const prevRect = slotGroupId ? snapshot.groupRects.get(slotGroupId) : undefined;
+          if (!prevRect) continue;
+          const currRect = slotEl.getBoundingClientRect();
+          if (
+            currRect.height > 0 &&
+            currRect.top + currRect.height <= last.top + 2 &&
+            prevRect.height - currRect.height > 1
+          ) {
+            const pinnedHeight = `${prevRect.height}px`;
+            pinnedSlots.push({
+              el: slotEl,
+              prevHeight: slotEl.style.height,
+              pinnedHeight,
+            });
+            slotEl.style.height = pinnedHeight;
+          }
+        }
+
+        const bottomSep = scopeEl.querySelector<HTMLElement>(
+          '[data-split-separator-edge="bottom"]',
+        );
+        if (bottomSep && typeof bottomSep.animate === 'function') {
+          const sepBaseStyle = cancelAndRestore(bottomSep);
+          bottomSep.style.zIndex = '16';
+          const sepAnim = bottomSep.animate(
+            [
+              { transform: `translate3d(0, ${last.height}px, 0)` },
+              { transform: 'translate3d(0, 0, 0)' },
+            ],
+            { duration: 220, easing: FLIP_EASING },
+          );
+          trackAnimation(bottomSep, sepAnim, sepBaseStyle);
+        }
+
+        el.style.transformOrigin = 'bottom center';
+        const anim = el.animate(
+          [{ transform: 'translate3d(0, 100%, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+          { duration: 220, easing: FLIP_EASING },
+        );
+        trackAnimation(el, anim, baseStyle, () => {
+          groupSlotEl.style.overflow = prevSlotOverflow;
+          groupSlotEl.style.zIndex = prevSlotZIndex;
+          for (const pinned of pinnedSlots) {
+            if (pinned.el.style.height === pinned.pinnedHeight) {
+              pinned.el.style.height = pinned.prevHeight;
+            }
+          }
+        });
+        continue;
+      }
+
       const tabRect = snapshot.tabRects.get(id);
       let dx = 0;
       let dy = 0;
@@ -278,6 +560,7 @@ export function playLayoutAnimation(
     if ((side !== 'left' && side !== 'right') || typeof el.animate !== 'function') continue;
     if (snapshot.drawerRects.has(side)) continue;
 
+    clearExitGhost(`drawer:${side}`);
     const baseStyle = cancelAndRestore(el);
     const last = el.getBoundingClientRect();
     if (last.width <= 0 || last.height <= 0) continue;
@@ -299,6 +582,59 @@ export function playLayoutAnimation(
       }
     });
   }
+
+  // Slide out hidden bottom-docked panels and collapsed side drawers via clipped visual exit ghosts.
+  const activeFlipIds = new Set<string>();
+  for (const el of elements) {
+    if (el.dataset.flipId) activeFlipIds.add(el.dataset.flipId);
+  }
+  const activeGroupIds = new Set<string>();
+  for (const el of rootEl.querySelectorAll<HTMLElement>('[data-group-container]')) {
+    if (el.dataset.groupContainer) activeGroupIds.add(el.dataset.groupContainer);
+  }
+  const activeDrawerViewportIds = new Set<string>();
+  for (const el of rootEl.querySelectorAll<HTMLElement>('[data-drawer-viewport-id]')) {
+    if (el.dataset.drawerViewportId) activeDrawerViewportIds.add(el.dataset.drawerViewportId);
+  }
+  const hasMaximized = Boolean(rootEl.querySelector('[data-maximized-viewport]'));
+
+  if (stageEl && !hasMaximized && snapshot.bottomExitSnapshots) {
+    for (const [groupId, entry] of snapshot.bottomExitSnapshots) {
+      if (activeGroupIds.has(groupId)) continue;
+      if (
+        entry.viewportId &&
+        (activeFlipIds.has(entry.viewportId) || activeDrawerViewportIds.has(entry.viewportId))
+      ) {
+        continue;
+      }
+      spawnExitSlideGhost(
+        'dock:bottom',
+        stageEl,
+        entry,
+        'translate3d(0, 100%, 0)',
+        'dock-bottom',
+        true,
+      );
+    }
+  }
+
+  if (snapshot.drawerExitSnapshots) {
+    for (const [side, entry] of snapshot.drawerExitSnapshots) {
+      if (currentDrawerSides.has(side)) continue;
+      if (entry.viewportId && activeFlipIds.has(entry.viewportId)) continue;
+      const toX = side === 'left' ? '-100%' : '100%';
+      spawnExitSlideGhost(
+        `drawer:${side}`,
+        rootEl,
+        entry,
+        `translate3d(${toX}, 0, 0)`,
+        `drawer-${side}`,
+      );
+    }
+  }
+
+  snapshot.bottomExitSnapshots?.clear();
+  snapshot.drawerExitSnapshots?.clear();
 
   // Animate tab pills horizontally in stationary tab bars when adding or closing tabs.
   const tabElements = rootEl.querySelectorAll<HTMLElement>('[data-flip-tab-id]');

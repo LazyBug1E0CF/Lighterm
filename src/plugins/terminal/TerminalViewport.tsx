@@ -47,6 +47,7 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const theme = useMemo(() => getThemePreset(settings.themeId), [settings.themeId]);
+  const fitSyncRef = useRef<((notifyBackend?: boolean) => void) | null>(null);
   const termService = harness.getService<TerminalPluginService>('terminal:service');
 
   // Mount xterm instance for this sessionId.
@@ -56,7 +57,8 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
     if (!el || !sessionId) return;
 
     let disposed = false;
-    let resizeRafId = 0;
+    let lastSentCols = 0;
+    let lastSentRows = 0;
 
     const currentSettings = settingsRef.current;
     const currentTheme = getThemePreset(currentSettings.themeId);
@@ -90,15 +92,52 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
 
     term.open(el);
 
+    const flushSyncRender = () => {
+      if (disposed || !el.clientWidth || !el.clientHeight || term.rows <= 0) return;
+      const core = (
+        term as unknown as {
+          _core?: {
+            _renderService?: {
+              _isPaused?: boolean;
+              _renderRows?: (start: number, end: number) => void;
+              _renderer?: { value?: { renderRows?: (start: number, end: number) => void } };
+            };
+          };
+        }
+      )._core;
+      const renderService = core?._renderService;
+      if (!renderService || renderService._isPaused) return;
+      if (typeof renderService._renderRows === 'function') {
+        renderService._renderRows(0, term.rows - 1);
+      } else {
+        renderService._renderer?.value?.renderRows?.(0, term.rows - 1);
+      }
+    };
+
     const isJsdom =
       typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('jsdom');
     // Defer WebGL initialization until after mount so StrictMode's synthetic cleanup cancels cleanly.
     const webglRafId = requestAnimationFrame(() => {
       if (disposed || isJsdom) return;
       try {
-        const webgl = new WebglAddon();
+        const webgl = new WebglAddon(true);
         webgl.onContextLoss(() => webgl.dispose());
         term.loadAddon(webgl);
+        const renderer = (
+          webgl as unknown as {
+            _renderer?: {
+              _setCanvasDevicePixelDimensions?: (width: number, height: number) => void;
+            };
+          }
+        )._renderer;
+        if (renderer && typeof renderer._setCanvasDevicePixelDimensions === 'function') {
+          const origSetDims = renderer._setCanvasDevicePixelDimensions.bind(renderer);
+          renderer._setCanvasDevicePixelDimensions = (width: number, height: number) => {
+            origSetDims(width, height);
+            flushSyncRender();
+          };
+        }
+        flushSyncRender();
       } catch {
         // Fallback to canvas/DOM renderer
       }
@@ -176,24 +215,45 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
       }
     }
 
-    const doFit = () => {
+    const fitAndRenderSync = (notifyBackend = true) => {
       if (disposed || !el.clientWidth || !el.clientHeight) return;
       try {
-        fitAddon.fit();
-        if (term.cols > 0 && term.rows > 0) {
+        const dims = fitAddon.proposeDimensions();
+        if (
+          !dims ||
+          Number.isNaN(dims.cols) ||
+          Number.isNaN(dims.rows) ||
+          dims.cols <= 0 ||
+          dims.rows <= 0
+        ) {
+          return;
+        }
+        const sizeChanged = dims.cols !== term.cols || dims.rows !== term.rows;
+        if (sizeChanged) {
+          term.resize(dims.cols, dims.rows);
+          flushSyncRender();
+        }
+        if (
+          notifyBackend &&
+          term.cols > 0 &&
+          term.rows > 0 &&
+          (term.cols !== lastSentCols || term.rows !== lastSentRows)
+        ) {
+          lastSentCols = term.cols;
+          lastSentRows = term.rows;
           void shellService.resizeSession(sessionId, term.cols, term.rows);
         }
       } catch {
         // Ignore transient zero-size layout errors
       }
     };
+    fitSyncRef.current = fitAndRenderSync;
 
-    const rafId = requestAnimationFrame(doFit);
+    const rafId = requestAnimationFrame(() => fitAndRenderSync(true));
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
-        if (resizeRafId) cancelAnimationFrame(resizeRafId);
-        resizeRafId = requestAnimationFrame(doFit);
+        fitAndRenderSync(true);
       });
       resizeObserver.observe(el);
     }
@@ -202,7 +262,6 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
       disposed = true;
       cancelAnimationFrame(webglRafId);
       cancelAnimationFrame(rafId);
-      if (resizeRafId) cancelAnimationFrame(resizeRafId);
       resizeObserver?.disconnect();
       unsubscribe();
       onDataDisposable.dispose();
@@ -211,6 +270,7 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
       termRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;
+      fitSyncRef.current = null;
     };
   }, [sessionId]);
 
@@ -232,30 +292,38 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
       ...theme.xterm,
       background: hexWithAlpha(theme.ui.bgApp, settings.backgroundOpacity),
     };
-    requestAnimationFrame(() => {
-      if (containerRef.current?.clientWidth && containerRef.current?.clientHeight) {
-        try {
-          fitAddonRef.current?.fit();
-        } catch {
-          // Ignore
-        }
+    const rafId = requestAnimationFrame(() => {
+      if (
+        !termRef.current ||
+        !containerRef.current?.clientWidth ||
+        !containerRef.current?.clientHeight
+      ) {
+        return;
+      }
+      try {
+        fitSyncRef.current?.(false);
+      } catch {
+        // Ignore
       }
     });
+    return () => cancelAnimationFrame(rafId);
   }, [settings, theme]);
 
   useEffect(() => {
     if (isActive && sessionId) {
       shellService.setActiveSession(sessionId);
-      requestAnimationFrame(() => {
+      const rafId = requestAnimationFrame(() => {
+        if (!termRef.current) return;
         if (containerRef.current?.clientWidth && containerRef.current?.clientHeight) {
           try {
-            fitAddonRef.current?.fit();
+            fitSyncRef.current?.(false);
           } catch {
             // Ignore
           }
         }
         termRef.current?.focus();
       });
+      return () => cancelAnimationFrame(rafId);
     }
   }, [isActive, isFloating, sessionId]);
 
@@ -296,7 +364,7 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
         setContextMenu({ x: e.clientX, y: e.clientY });
       }}
       className="relative flex-1 flex flex-col min-w-0 min-h-0"
-      style={{ backgroundColor: 'transparent' }}
+      style={{ backgroundColor: 'var(--bg-app)' }}
     >
       {statusMsg && (
         <div

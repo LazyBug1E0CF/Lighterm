@@ -374,3 +374,94 @@ export function buildPresetDockTree(
   }
   return buildLinearSplitFromNodes(rows, 'vertical');
 }
+
+export interface DockGroupLayoutSlot {
+  group: DockGroupNode;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface DockSplitSeparatorSlot {
+  splitId: string;
+  direction: SplitDirection;
+  left: number;
+  top: number;
+  length: number;
+  branchLeft: number;
+  branchTop: number;
+  branchWidth: number;
+  branchHeight: number;
+}
+
+export interface FlatDockLayout {
+  groups: DockGroupLayoutSlot[];
+  separators: DockSplitSeparatorSlot[];
+}
+
+/**
+ * Computes flat percentage coordinates for every docked group and split separator
+ * so DockGroupView instances stay at a constant React tree depth across splits and closes.
+ */
+export function computeFlatDockLayout(root: DockNode | null): FlatDockLayout {
+  const groups: DockGroupLayoutSlot[] = [];
+  const separators: DockSplitSeparatorSlot[] = [];
+  if (!root) {
+    return { groups, separators };
+  }
+
+  const visit = (
+    node: DockNode,
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+  ): void => {
+    if (node.type === 'group') {
+      groups.push({ group: node, left, top, width, height });
+      return;
+    }
+
+    if (node.direction === 'horizontal') {
+      const firstWidth = width * node.ratio;
+      const secondWidth = width - firstWidth;
+      const splitX = left + firstWidth;
+      separators.push({
+        splitId: node.id,
+        direction: 'horizontal',
+        left: splitX,
+        top,
+        length: height,
+        branchLeft: left,
+        branchTop: top,
+        branchWidth: width,
+        branchHeight: height,
+      });
+      visit(node.first, left, top, firstWidth, height);
+      visit(node.second, splitX, top, secondWidth, height);
+      return;
+    }
+
+    const firstHeight = height * node.ratio;
+    const secondHeight = height - firstHeight;
+    const splitY = top + firstHeight;
+    separators.push({
+      splitId: node.id,
+      direction: 'vertical',
+      left,
+      top: splitY,
+      length: width,
+      branchLeft: left,
+      branchTop: top,
+      branchWidth: width,
+      branchHeight: height,
+    });
+    visit(node.first, left, top, width, firstHeight);
+    visit(node.second, left, splitY, width, secondHeight);
+  };
+
+  visit(root, 0, 0, 100, 100);
+  groups.sort((a, b) => a.group.id.localeCompare(b.group.id));
+  return { groups, separators };
+}

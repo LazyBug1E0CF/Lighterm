@@ -16,6 +16,7 @@ interface DockGroupViewProps {
   group: DockGroupNode;
   showCompass: boolean;
   showWorkspaceControls?: boolean;
+  isMultiGroup?: boolean;
 }
 
 const COMPASS_ZONES: {
@@ -34,6 +35,7 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({
   group,
   showCompass,
   showWorkspaceControls = false,
+  isMultiGroup = false,
 }) => {
   const viewports = useLayoutStore((s) => s.viewports);
   const globalActiveId = useLayoutStore((s) => s.activeViewportId);
@@ -64,8 +66,8 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({
       onMouseDown={() => {
         if (activeVp) layoutService.setActiveViewport(activeVp.id);
       }}
-      className={`relative flex-1 flex flex-col min-w-0 min-h-0 border transition-colors ${
-        isGroupFocused ? 'border-[var(--accent)]/60' : 'border-[var(--border-subtle)]/50'
+      className={`relative flex-1 flex flex-col min-w-0 min-h-0 transition-colors ${
+        isMultiGroup && isGroupFocused ? 'ring-1 ring-inset ring-[var(--accent)]/45' : ''
       }`}
       style={{ backgroundColor: 'var(--bg-surface)' }}
     >

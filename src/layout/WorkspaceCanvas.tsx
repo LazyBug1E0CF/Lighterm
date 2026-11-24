@@ -4,87 +4,85 @@ import { shellService, useShellStore } from '../core/shellService';
 import { useViewportDescriptors } from '../harness/HarnessContext';
 import { TERMINAL_VIEWPORT_TYPE } from '../plugins/terminal/terminalService';
 import { DockGroupView } from './DockGroupView';
-import { collectGroups, pruneUnavailableViewports } from './dockTree';
+import {
+  collectGroups,
+  computeFlatDockLayout,
+  type DockSplitSeparatorSlot,
+  pruneUnavailableViewports,
+} from './dockTree';
 import { FloatingViewportWindow } from './FloatingViewportWindow';
 import { getLatestLayoutSnapshot, playLayoutAnimation } from './layoutAnimator';
 import { layoutService, useLayoutStore } from './layoutStore';
 import { NewShellButton, QuickShellLayoutButtons } from './QuickShellLayoutBar';
 import { SideDrawer } from './SideDrawer';
-import type { DockEdge, DockNode, DockZone, DrawerSide, SnapTarget } from './types';
+import type { DockEdge, DockZone, DrawerSide, SnapTarget } from './types';
 
-interface DockSplitBranchProps {
-  node: DockNode;
-  hoveredGroupId: string | null;
-  showWorkspaceControls?: boolean;
+interface SplitSeparatorOverlayProps {
+  sep: DockSplitSeparatorSlot;
+  stageRef: React.RefObject<HTMLDivElement | null>;
+  dockEdge?: 'bottom';
 }
 
-const DockSplitBranch: React.FC<DockSplitBranchProps> = ({
-  node,
-  hoveredGroupId,
-  showWorkspaceControls = false,
+const SplitSeparatorOverlay: React.FC<SplitSeparatorOverlayProps> = ({
+  sep,
+  stageRef,
+  dockEdge,
 }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  if (node.type === 'group') {
-    return (
-      <DockGroupView
-        group={node}
-        showCompass={hoveredGroupId === node.id}
-        showWorkspaceControls={showWorkspaceControls}
-      />
-    );
-  }
-
-  const isHorizontal = node.direction === 'horizontal';
+  const [resizing, setResizing] = useState(false);
+  const isDraggingAny = useLayoutStore((s) => Boolean(s.dragState?.active));
+  const isHorizontal = sep.direction === 'horizontal';
 
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const container = containerRef.current;
-    if (!container) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    setResizing(true);
 
     const onMove = (ev: PointerEvent) => {
-      const rect = container.getBoundingClientRect();
+      const rect = stage.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      const ratio = isHorizontal
-        ? (ev.clientX - rect.left) / rect.width
-        : (ev.clientY - rect.top) / rect.height;
-      layoutService.setSplitRatio(node.id, ratio);
+      const branchSize = isHorizontal
+        ? (rect.width * sep.branchWidth) / 100
+        : (rect.height * sep.branchHeight) / 100;
+      if (branchSize <= 0) return;
+      const branchStart = isHorizontal
+        ? rect.left + (rect.width * sep.branchLeft) / 100
+        : rect.top + (rect.height * sep.branchTop) / 100;
+      const pointerCoord = isHorizontal ? ev.clientX : ev.clientY;
+      layoutService.setSplitRatio(sep.splitId, (pointerCoord - branchStart) / branchSize);
     };
 
     const onUp = () => {
+      setResizing(false);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   return (
     <div
-      ref={containerRef}
-      className={`flex-1 flex min-w-0 min-h-0 ${isHorizontal ? 'flex-row' : 'flex-col'}`}
-    >
-      <div
-        className="flex min-w-0 min-h-0"
-        style={{ flexBasis: `${node.ratio * 100}%`, flexGrow: 0, flexShrink: 0 }}
-      >
-        <DockSplitBranch node={node.first} hoveredGroupId={hoveredGroupId} />
-      </div>
-
-      <div
-        role="separator"
-        aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
-        onPointerDown={startResize}
-        className={`${
-          isHorizontal ? 'w-1.5 cursor-col-resize' : 'h-1.5 cursor-row-resize'
-        } shrink-0 bg-[var(--border-subtle)]/80 hover:bg-[var(--accent)] transition-colors`}
-      />
-
-      <div className="flex-1 flex min-w-0 min-h-0">
-        <DockSplitBranch node={node.second} hoveredGroupId={hoveredGroupId} />
-      </div>
-    </div>
+      role="separator"
+      aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
+      data-split-separator-edge={dockEdge}
+      onPointerDown={startResize}
+      style={
+        isHorizontal
+          ? { left: `${sep.left}%`, top: `${sep.top}%`, height: `${sep.length}%` }
+          : { left: `${sep.left}%`, top: `${sep.top}%`, width: `${sep.length}%` }
+      }
+      className={`absolute z-10 bg-[var(--border-subtle)] ${
+        isHorizontal
+          ? "w-px -translate-x-1/2 cursor-col-resize before:content-[''] before:absolute before:inset-y-0 before:-left-[3px] before:-right-[3px] after:content-[''] after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-0.5 after:transition-colors"
+          : "h-px -translate-y-1/2 cursor-row-resize before:content-[''] before:absolute before:inset-x-0 before:-top-[3px] before:-bottom-[3px] after:content-[''] after:absolute after:inset-x-0 after:top-1/2 after:-translate-y-1/2 after:h-0.5 after:transition-colors"
+      } ${resizing ? 'after:bg-[var(--accent)]' : 'after:bg-transparent hover:after:bg-[var(--accent)]'} ${
+        isDraggingAny ? 'pointer-events-none' : ''
+      }`}
+    />
   );
 };
 
@@ -206,6 +204,20 @@ export const WorkspaceCanvas: React.FC = () => {
   );
 
   const visibleGroups = useMemo(() => collectGroups(visibleDockRoot), [visibleDockRoot]);
+  const flatDockLayout = useMemo(() => computeFlatDockLayout(visibleDockRoot), [visibleDockRoot]);
+  const bottomEdgeSlot = useMemo(
+    () =>
+      flatDockLayout.groups.length > 1
+        ? flatDockLayout.groups.find(
+            (slot) =>
+              slot.top > 0.5 &&
+              slot.top + slot.height >= 99.5 &&
+              slot.left <= 0.5 &&
+              slot.width >= 99.5,
+          )
+        : undefined,
+    [flatDockLayout],
+  );
 
   const visibleFloating = useMemo(
     () =>
@@ -295,6 +307,11 @@ export const WorkspaceCanvas: React.FC = () => {
       layoutService.commitDrag();
     };
 
+    const onCancel = () => {
+      setHoveredGroupId(null);
+      layoutService.cancelDrag();
+    };
+
     const onKeyDown = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') {
         setHoveredGroupId(null);
@@ -304,10 +321,14 @@ export const WorkspaceCanvas: React.FC = () => {
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onCancel);
     window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onCancel);
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [isTrackingDrag]);
@@ -315,7 +336,23 @@ export const WorkspaceCanvas: React.FC = () => {
   const maximizedVp = maximizedViewportId ? viewports[maximizedViewportId] : undefined;
   const maximizedDesc = maximizedVp ? descriptors[maximizedVp.typeId] : undefined;
   const MaxComponent = maximizedDesc?.component;
-  const singleGroupMode = !maximizedVp && visibleGroups.length === 1;
+
+  const terminalGroups = visibleGroups.filter((grp) =>
+    grp.viewportIds.some((vid) => viewports[vid]?.typeId === TERMINAL_VIEWPORT_TYPE),
+  );
+  const hasFloatingTerminal = visibleFloating.some(
+    (item) => viewports[item.viewportId]?.typeId === TERMINAL_VIEWPORT_TYPE,
+  );
+  const inlineControlsGroupId =
+    maximizedVp || hasFloatingTerminal
+      ? null
+      : terminalGroups.length === 1
+        ? terminalGroups[0].id
+        : terminalGroups.length === 0 && visibleGroups.length === 1
+          ? visibleGroups[0].id
+          : null;
+  const showTopShellToolbar = !maximizedVp && inlineControlsGroupId === null;
+  const isMultiGroup = visibleGroups.length > 1;
 
   const snapPreviewStyle = previewStyleForSnap(dragState?.active ? dragState.snapTarget : null);
 
@@ -327,11 +364,15 @@ export const WorkspaceCanvas: React.FC = () => {
       <SideDrawer side="left" />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        {!maximizedVp && !singleGroupMode && <WorkspaceShellToolbar />}
+        {showTopShellToolbar && <WorkspaceShellToolbar />}
 
         <div ref={workspaceRef} className="relative flex-1 flex min-w-0 min-h-0 overflow-hidden">
           {maximizedVp && MaxComponent ? (
-            <div data-flip-id={maximizedVp.id} className="flex-1 flex flex-col min-w-0 min-h-0">
+            <div
+              data-flip-id={maximizedVp.id}
+              data-maximized-viewport="true"
+              className="flex-1 flex flex-col min-w-0 min-h-0"
+            >
               <div
                 className="h-8 px-3 flex items-center justify-between border-b border-[var(--border-subtle)] text-xs shrink-0"
                 style={{ backgroundColor: 'var(--bg-elevated)' }}
@@ -357,11 +398,48 @@ export const WorkspaceCanvas: React.FC = () => {
               </div>
             </div>
           ) : visibleDockRoot ? (
-            <DockSplitBranch
-              node={visibleDockRoot}
-              hoveredGroupId={hoveredGroupId}
-              showWorkspaceControls={singleGroupMode}
-            />
+            <>
+              {flatDockLayout.groups.map((slot) => {
+                const isBottomEdgeSlot = bottomEdgeSlot?.group.id === slot.group.id;
+                return (
+                  <div
+                    key={slot.group.id}
+                    data-group-slot={slot.group.id}
+                    data-dock-edge={isBottomEdgeSlot ? 'bottom' : undefined}
+                    className="absolute flex min-w-0 min-h-0"
+                    style={{
+                      left: `${slot.left}%`,
+                      top: `${slot.top}%`,
+                      width: `${slot.width}%`,
+                      height: `${slot.height}%`,
+                    }}
+                  >
+                    <DockGroupView
+                      group={slot.group}
+                      showCompass={hoveredGroupId === slot.group.id}
+                      showWorkspaceControls={inlineControlsGroupId === slot.group.id}
+                      isMultiGroup={isMultiGroup}
+                    />
+                  </div>
+                );
+              })}
+              {flatDockLayout.separators.map((sep) => {
+                const isBottomEdgeSeparator =
+                  Boolean(bottomEdgeSlot) &&
+                  sep.direction === 'vertical' &&
+                  Math.abs(sep.top - bottomEdgeSlot!.top) <= 0.5 &&
+                  Math.abs(sep.left - bottomEdgeSlot!.left) <= 0.5 &&
+                  Math.abs(sep.length - bottomEdgeSlot!.width) <= 0.5;
+                return (
+                  <SplitSeparatorOverlay
+                    key={sep.splitId}
+                    sep={sep}
+                    stageRef={workspaceRef}
+                    dockEdge={isBottomEdgeSeparator ? 'bottom' : undefined}
+                  />
+                );
+              })}
+            </>
           ) : visibleFloating.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)]">
               <p>

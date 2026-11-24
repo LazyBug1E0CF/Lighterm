@@ -92,7 +92,10 @@ export async function bootstrapLightermHarness(): Promise<void> {
     }
 
     await initTask;
-  })();
+  })().catch((err) => {
+    bootstrapPromise = null;
+    throw err;
+  });
 
   return bootstrapPromise;
 }
@@ -115,3 +118,7 @@ export {
   snippetsPlugin,
   historyPlugin,
 };
+
+if (import.meta.hot) {
+  import.meta.hot.accept();
+}

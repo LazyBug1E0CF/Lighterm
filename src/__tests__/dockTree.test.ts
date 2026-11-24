@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   buildPresetDockTree,
   collectGroups,
+  computeFlatDockLayout,
   dockViewportAtEdge,
   dockViewportInGroup,
   findGroupContainingViewport,
@@ -310,5 +311,71 @@ describe('Universal DockTree & LayoutService', () => {
       leftAutoCollapse: false,
       rightAutoCollapse: true,
     });
+  });
+
+  it('computes flat percentage slots and separator bounds with stable group ordering', () => {
+    expect(computeFlatDockLayout(null)).toEqual({ groups: [], separators: [] });
+
+    const flat = computeFlatDockLayout({
+      type: 'split',
+      id: 'split-v',
+      direction: 'vertical',
+      ratio: 0.7,
+      first: {
+        type: 'split',
+        id: 'split-h',
+        direction: 'horizontal',
+        ratio: 0.4,
+        first: {
+          type: 'group',
+          id: 'grp-z',
+          viewportIds: ['vp-z'],
+          activeViewportId: 'vp-z',
+        },
+        second: {
+          type: 'group',
+          id: 'grp-a',
+          viewportIds: ['vp-a'],
+          activeViewportId: 'vp-a',
+        },
+      },
+      second: {
+        type: 'group',
+        id: 'grp-m',
+        viewportIds: ['vp-m'],
+        activeViewportId: 'vp-m',
+      },
+    });
+
+    expect(flat.groups.map((g) => g.group.id)).toEqual(['grp-a', 'grp-m', 'grp-z']);
+    const byId = Object.fromEntries(flat.groups.map((g) => [g.group.id, g]));
+    expect(byId['grp-z']).toMatchObject({ left: 0, top: 0, width: 40, height: 70 });
+    expect(byId['grp-a']).toMatchObject({ left: 40, top: 0, width: 60, height: 70 });
+    expect(byId['grp-m']).toMatchObject({ left: 0, top: 70, width: 100, height: 30 });
+
+    expect(flat.separators).toEqual([
+      {
+        splitId: 'split-v',
+        direction: 'vertical',
+        left: 0,
+        top: 70,
+        length: 100,
+        branchLeft: 0,
+        branchTop: 0,
+        branchWidth: 100,
+        branchHeight: 100,
+      },
+      {
+        splitId: 'split-h',
+        direction: 'horizontal',
+        left: 40,
+        top: 0,
+        length: 70,
+        branchLeft: 0,
+        branchTop: 0,
+        branchWidth: 100,
+        branchHeight: 70,
+      },
+    ]);
   });
 });

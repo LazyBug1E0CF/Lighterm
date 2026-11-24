@@ -152,6 +152,14 @@ const activeSessionListeners = new Set<ActiveSessionListener>();
 let tauriListenersPromise: Promise<void> | null = null;
 let initPromise: Promise<void> | null = null;
 
+function formatErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    return String((err as { message: unknown }).message);
+  }
+  return String(err);
+}
+
 function appendHistoryChunk(sessionId: string, dataBase64: string, byteLen: number): void {
   let entry = historyChunks.get(sessionId);
   if (!entry) {
@@ -233,7 +241,10 @@ async function ensureTauriListeners(): Promise<void> {
         dispatchExit(payload.sessionId);
       }),
     ]);
-  })();
+  })().catch((err) => {
+    tauriListenersPromise = null;
+    throw err;
+  });
 
   return tauriListenersPromise;
 }
@@ -295,7 +306,10 @@ export class ShellService {
         savedWorkspaces,
         initialized: true,
       });
-    })();
+    })().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
 
     return initPromise;
   }
@@ -369,7 +383,8 @@ export class ShellService {
 
       return info;
     } catch (err) {
-      this.setBannerError(err instanceof Error ? err.message : String(err));
+      console.error('[Lighterm] Failed to create local session:', err);
+      this.setBannerError(`Failed to open local shell: ${formatErrorMessage(err)}`);
       return null;
     }
   }
@@ -447,11 +462,7 @@ export class ShellService {
 
       return info;
     } catch (err) {
-      const message =
-        typeof err === 'object' && err !== null && 'message' in err
-          ? String((err as { message: unknown }).message)
-          : String(err);
-      this.setBannerError(`SSH connection failed: ${message}`);
+      this.setBannerError(`SSH connection failed: ${formatErrorMessage(err)}`);
       return null;
     }
   }
@@ -869,6 +880,7 @@ export class ShellService {
   }
 
   resetForTesting(): void {
+    tauriListenersPromise = null;
     initPromise = null;
     mockSessions.clear();
     outputSubscribers.clear();
@@ -910,3 +922,9 @@ export const formatSessionHostLabel = (session: ShellSessionRecord | null): stri
 
 export const getSessionKindLabel = (kind: SessionKind): string =>
   kind === 'ssh' ? 'SSH' : 'Local';
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    window.location.reload();
+  });
+}

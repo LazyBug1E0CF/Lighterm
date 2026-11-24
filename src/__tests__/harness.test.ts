@@ -133,4 +133,104 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
 
     await expect(kernel.disablePlugin('test.missing')).rejects.toThrow(/Unknown plugin/);
   });
+
+  it('handles repeated register() calls across HMR without dropping active plugins or leaking listeners', async () => {
+    window.localStorage.clear();
+    const kernel = new HarnessKernel();
+    kernel.provideCoreService('core:shell', { name: 'shell' });
+
+    let baseV1Activations = 0;
+    let baseV2Activations = 0;
+    let consumerActivations = 0;
+    const baseV1Cleanup = vi.fn();
+    const baseV2Cleanup = vi.fn();
+    const consumerCleanup = vi.fn();
+
+    const baseV1: PluginDefinition = {
+      id: 'test.base',
+      name: 'Base',
+      version: '1.0.0',
+      description: 'Base service provider v1',
+      inject: ['core:shell'],
+      provides: ['base:api'],
+      activate(ctx) {
+        baseV1Activations += 1;
+        ctx.provide('base:api', { version: 1 });
+        ctx.registerViewport({
+          typeId: 'base.vp',
+          title: 'Base VP',
+          icon: DummyIcon,
+          defaultDock: 'center',
+          component: DummyComp,
+        });
+        ctx.onCleanup(baseV1Cleanup);
+      },
+    };
+
+    const consumerDef: PluginDefinition = {
+      id: 'test.consumer',
+      name: 'Consumer',
+      version: '1.0.0',
+      description: 'Depends on base:api',
+      inject: ['base:api'],
+      activate(ctx) {
+        consumerActivations += 1;
+        ctx.onCleanup(consumerCleanup);
+      },
+    };
+
+    kernel.register(baseV1);
+    kernel.register(consumerDef);
+    await kernel.start();
+
+    expect(baseV1Activations).toBe(1);
+    expect(consumerActivations).toBe(1);
+    expect(kernel.isPluginActive('test.base')).toBe(true);
+    expect(kernel.isPluginActive('test.consumer')).toBe(true);
+
+    // Re-registering the exact same active definition (e.g. parent barrel HMR) is a safe no-op
+    kernel.register(baseV1);
+    expect(baseV1Activations).toBe(1);
+    expect(consumerActivations).toBe(1);
+    expect(baseV1Cleanup).not.toHaveBeenCalled();
+    expect(consumerCleanup).not.toHaveBeenCalled();
+    expect(kernel.isPluginActive('test.base')).toBe(true);
+    expect(kernel.getViewportDescriptor('base.vp')).toBeDefined();
+
+    // Re-registering with a fresh definition object disposes old listeners and reactivates both
+    const baseV2: PluginDefinition = {
+      ...baseV1,
+      version: '1.0.1',
+      activate(ctx) {
+        baseV2Activations += 1;
+        ctx.provide('base:api', { version: 2 });
+        ctx.registerViewport({
+          typeId: 'base.vp',
+          title: 'Base VP',
+          icon: DummyIcon,
+          defaultDock: 'center',
+          component: DummyComp,
+        });
+        ctx.onCleanup(baseV2Cleanup);
+      },
+    };
+
+    kernel.register(baseV2);
+    expect(baseV1Cleanup).toHaveBeenCalledTimes(1);
+    expect(consumerCleanup).toHaveBeenCalledTimes(1);
+    expect(baseV2Activations).toBe(1);
+    expect(consumerActivations).toBe(2);
+    expect(baseV2Cleanup).not.toHaveBeenCalled();
+    expect(kernel.isPluginActive('test.base')).toBe(true);
+    expect(kernel.isPluginActive('test.consumer')).toBe(true);
+    expect(kernel.getViewportDescriptor('base.vp')).toBeDefined();
+    expect(kernel.getService<{ version: number }>('base:api')).toEqual({ version: 2 });
+
+    // Disabled state of dependent plugin is respected when base plugin re-registers
+    await kernel.disablePlugin('test.consumer');
+    expect(kernel.isPluginActive('test.consumer')).toBe(false);
+    kernel.register({ ...baseV2 });
+    expect(kernel.isPluginActive('test.base')).toBe(true);
+    expect(kernel.isPluginActive('test.consumer')).toBe(false);
+  });
 });

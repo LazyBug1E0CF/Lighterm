@@ -1459,3 +1459,9 @@ export class LayoutService {
 }
 
 export const layoutService = new LayoutService();
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    window.location.reload();
+  });
+}

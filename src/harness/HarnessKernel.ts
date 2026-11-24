@@ -80,13 +80,44 @@ export class HarnessKernel {
     const existing = this.plugins.get(def.id);
     if (!existing) {
       this.pluginOrder.push(def.id);
+      this.plugins.set(def.id, {
+        def,
+        enabled: def.alwaysOn ? true : (def.defaultEnabled ?? true),
+        active: false,
+        disposers: [],
+      });
+      if (this.started) {
+        this.reconcileActivationsSync();
+        void this.reconcileActivations().then((changed) => {
+          if (changed) this.rebuildSnapshot();
+        });
+      }
+      this.rebuildSnapshot();
+      return;
     }
-    this.plugins.set(def.id, {
-      def,
-      enabled: def.alwaysOn ? true : (def.defaultEnabled ?? true),
-      active: false,
-      disposers: [],
-    });
+
+    if (existing.def === def && existing.active) {
+      return;
+    }
+
+    if (existing.active) {
+      this.deactivateRecursive(def.id, new Set());
+    }
+
+    existing.def = def;
+    existing.error = undefined;
+    existing.enabled = def.alwaysOn
+      ? true
+      : this.started
+        ? existing.enabled
+        : (def.defaultEnabled ?? true);
+
+    if (this.started) {
+      this.reconcileActivationsSync();
+      void this.reconcileActivations().then((changed) => {
+        if (changed) this.rebuildSnapshot();
+      });
+    }
     this.rebuildSnapshot();
   }
 
@@ -525,3 +556,9 @@ export class HarnessKernel {
 }
 
 export const harnessKernel = new HarnessKernel();
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    window.location.reload();
+  });
+}

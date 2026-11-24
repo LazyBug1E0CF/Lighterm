@@ -31,6 +31,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
   const descriptors = useViewportDescriptors();
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [resizing, setResizing] = useState(false);
   const asideRef = useRef<HTMLElement | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const drawerContentRef = useRef<HTMLDivElement | null>(null);
@@ -163,6 +164,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     isResizingRef.current = true;
+    setResizing(true);
     const startX = e.clientX;
     const startWidth = drawer.width;
 
@@ -174,12 +176,15 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
     const onUp = () => {
       isResizingRef.current = false;
+      setResizing(false);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   const railElement = (
@@ -503,7 +508,11 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
         aria-orientation="vertical"
         aria-label={`Resize ${sideLabel} Drawer`}
         onPointerDown={startResize}
-        className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-[var(--accent)] transition-colors"
+        className={`absolute top-0 bottom-0 z-20 w-1.5 cursor-col-resize bg-transparent ${
+          side === 'left' ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2'
+        } ${isDraggingAny ? 'pointer-events-none' : ''} after:content-[''] after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-0.5 after:transition-colors ${
+          resizing ? 'after:bg-[var(--accent)]' : 'after:bg-transparent hover:after:bg-[var(--accent)]'
+        }`}
       />
     ) : null;
 
@@ -511,21 +520,20 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
     <aside
       ref={asideRef}
       aria-label={`${sideLabel} Side Drawer`}
-      className="flex shrink-0 h-full select-none"
+      className="relative flex shrink-0 h-full select-none"
     >
       {side === 'left' ? (
         <>
           {railElement}
           {drawerPanelElement}
-          {resizeSash}
         </>
       ) : (
         <>
-          {resizeSash}
           {drawerPanelElement}
           {railElement}
         </>
       )}
+      {resizeSash}
     </aside>
   );
 };
