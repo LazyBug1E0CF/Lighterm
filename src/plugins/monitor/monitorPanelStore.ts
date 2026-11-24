@@ -3,6 +3,16 @@ import { writeLs } from '../../core/ipc';
 
 export const LS_MONITOR_PANELS = 'lighterm:monitor-panels';
 
+export interface MonitorPluginConfig extends Record<string, unknown> {
+  pollIntervalMs: number;
+  defaultProcessSort: 'cpu' | 'mem';
+}
+
+export const DEFAULT_MONITOR_CONFIG: MonitorPluginConfig = {
+  pollIntervalMs: 2500,
+  defaultProcessSort: 'cpu',
+};
+
 export type MonitorPanelId = 'host' | 'cpu' | 'memory' | 'network' | 'disks' | 'processes';
 
 export interface MonitorPanelMeta {

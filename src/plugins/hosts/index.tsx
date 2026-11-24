@@ -1,17 +1,19 @@
 import { Server } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
-import type { PluginDefinition } from '../../harness/types';
+import { definePlugin } from '../../harness';
 import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { HostsViewport } from './HostsViewport';
 
 export const HOSTS_VIEWPORT_TYPE = 'hosts.manager';
 
-export const hostsPlugin: PluginDefinition = {
+export const hostsPlugin = definePlugin({
   id: 'lighterm.hosts',
   name: 'SSH Hosts Manager',
   version: '1.0.0',
   description: 'Saved SSH host profiles with quick connect and extensible per-host actions',
+  icon: Server,
+  author: 'Lighterm',
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
   alwaysOn: true,
@@ -23,19 +25,17 @@ export const hostsPlugin: PluginDefinition = {
       typeId: HOSTS_VIEWPORT_TYPE,
       title: 'SSH Hosts',
       icon: Server,
-      defaultDock: 'left-drawer',
+      defaultPosition: 'left-drawer',
       defaultFloatSize: { width: 320, height: 480 },
       singleton: true,
+      openOnStartup: true,
+      activateOnStartup: true,
+      order: 10,
       component: HostsViewport,
     });
 
     const toggle = () => {
-      layout.toggleSingletonViewport({
-        typeId: HOSTS_VIEWPORT_TYPE,
-        pluginId: ctx.pluginId,
-        title: 'SSH Hosts',
-        preferredDock: 'left-drawer',
-      });
+      layout.toggleSingletonViewport({ typeId: HOSTS_VIEWPORT_TYPE });
     };
 
     const toggleDrawerOrOpen = () => {
@@ -63,4 +63,4 @@ export const hostsPlugin: PluginDefinition = {
     window.addEventListener('keydown', onKeyDown);
     ctx.onCleanup(() => window.removeEventListener('keydown', onKeyDown));
   },
-};
+});

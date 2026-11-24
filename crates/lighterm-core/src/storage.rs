@@ -128,7 +128,7 @@ impl Storage {
         self.write_json_atomic(name, value, restricted)
     }
 
-    // ---- Plugin States ----
+    // ---- Plugin States & Configs ----
 
     pub fn get_plugin_states(&self) -> CoreResult<HashMap<String, bool>> {
         let _guard = self.lock.lock();
@@ -138,6 +138,65 @@ impl Storage {
     pub fn save_plugin_states(&self, states: &HashMap<String, bool>) -> CoreResult<()> {
         let _guard = self.lock.lock();
         self.write_json_atomic("plugins.json", states, false)
+    }
+
+    pub fn get_all_plugin_configs(&self) -> CoreResult<HashMap<String, serde_json::Value>> {
+        let _guard = self.lock.lock();
+        self.read_json_or_default("plugin-configs.json")
+    }
+
+    pub fn get_plugin_config(&self, plugin_id: &str) -> CoreResult<serde_json::Value> {
+        if !crate::plugin::is_valid_plugin_id(plugin_id) {
+            return Err(CoreError::InvalidInput(format!(
+                "Invalid plugin ID '{plugin_id}'"
+            )));
+        }
+        let _guard = self.lock.lock();
+        let all: HashMap<String, serde_json::Value> =
+            self.read_json_or_default("plugin-configs.json")?;
+        Ok(all
+            .get(plugin_id)
+            .filter(|v| v.is_object())
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Object(Default::default())))
+    }
+
+    pub fn save_plugin_config(
+        &self,
+        plugin_id: &str,
+        config: serde_json::Value,
+    ) -> CoreResult<serde_json::Value> {
+        if !crate::plugin::is_valid_plugin_id(plugin_id) {
+            return Err(CoreError::InvalidInput(format!(
+                "Invalid plugin ID '{plugin_id}'"
+            )));
+        }
+        if !config.is_object() {
+            return Err(CoreError::InvalidInput(
+                "Plugin config must be a JSON object".to_string(),
+            ));
+        }
+        let _guard = self.lock.lock();
+        let mut all: HashMap<String, serde_json::Value> =
+            self.read_json_or_default("plugin-configs.json")?;
+        all.insert(plugin_id.to_string(), config.clone());
+        self.write_json_atomic("plugin-configs.json", &all, false)?;
+        Ok(config)
+    }
+
+    pub fn reset_plugin_config(&self, plugin_id: &str) -> CoreResult<()> {
+        if !crate::plugin::is_valid_plugin_id(plugin_id) {
+            return Err(CoreError::InvalidInput(format!(
+                "Invalid plugin ID '{plugin_id}'"
+            )));
+        }
+        let _guard = self.lock.lock();
+        let mut all: HashMap<String, serde_json::Value> =
+            self.read_json_or_default("plugin-configs.json")?;
+        if all.remove(plugin_id).is_some() {
+            self.write_json_atomic("plugin-configs.json", &all, false)?;
+        }
+        Ok(())
     }
 
     // ---- Hosts ----

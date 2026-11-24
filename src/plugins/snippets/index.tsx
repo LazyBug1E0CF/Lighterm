@@ -1,18 +1,26 @@
 import { Code2 } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
-import type { PluginDefinition } from '../../harness/types';
+import { definePlugin } from '../../harness';
 import type { LayoutService } from '../../layout/layoutStore';
 import type { Snippet } from '../../types';
-import { snippetsClient } from './snippetsClient';
+import {
+  DEFAULT_SNIPPETS_CONFIG,
+  snippetsClient,
+  type SnippetsPluginConfig,
+} from './snippetsClient';
+import { SnippetsSettingsPage } from './SnippetsSettingsPage';
 import { SnippetsViewport } from './SnippetsViewport';
 
+export { DEFAULT_SNIPPETS_CONFIG, type SnippetsPluginConfig };
 export const SNIPPETS_VIEWPORT_TYPE = 'snippets.panel';
 
-export const snippetsPlugin: PluginDefinition = {
+export const snippetsPlugin = definePlugin({
   id: 'lighterm.snippets',
   name: 'Command Snippets',
   version: '1.0.0',
   description: 'Reusable shell command templates with {{variable}} prompt support',
+  icon: Code2,
+  author: 'Lighterm',
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
 
@@ -24,19 +32,26 @@ export const snippetsPlugin: PluginDefinition = {
       typeId: SNIPPETS_VIEWPORT_TYPE,
       title: 'Snippets',
       icon: Code2,
-      defaultDock: 'left-drawer',
+      defaultPosition: 'left-drawer',
       defaultFloatSize: { width: 340, height: 460 },
       singleton: true,
+      openOnStartup: true,
+      activateOnStartup: false,
+      order: 20,
       component: SnippetsViewport,
     });
 
+    ctx.registerSettingsPage({
+      id: 'snippets',
+      title: 'Snippets',
+      description: 'Configure default category and execution behavior for newly created snippets.',
+      icon: Code2,
+      order: 40,
+      component: SnippetsSettingsPage,
+    });
+
     const toggle = () => {
-      layout.toggleSingletonViewport({
-        typeId: SNIPPETS_VIEWPORT_TYPE,
-        pluginId: ctx.pluginId,
-        title: 'Snippets',
-        preferredDock: 'left-drawer',
-      });
+      layout.toggleSingletonViewport({ typeId: SNIPPETS_VIEWPORT_TYPE });
     };
 
     ctx.registerCommand({
@@ -69,4 +84,4 @@ export const snippetsPlugin: PluginDefinition = {
 
     void snippetsClient.load().catch(() => {});
   },
-};
+});

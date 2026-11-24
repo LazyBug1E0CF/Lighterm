@@ -1,32 +1,39 @@
 import { Activity } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
-import type { PluginDefinition } from '../../harness/types';
+import { definePlugin } from '../../harness';
 import type { LayoutService } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import {
+  DEFAULT_MONITOR_CONFIG,
   DEFAULT_MONITOR_PANELS,
   MONITOR_PANEL_CATALOG,
   monitorPanelService,
   useMonitorPanelStore,
   type MonitorPanelId,
+  type MonitorPluginConfig,
 } from './monitorPanelStore';
+import { MonitorSettingsPage } from './MonitorSettingsPage';
 import { MonitorViewport } from './MonitorViewport';
 
 export {
+  DEFAULT_MONITOR_CONFIG,
   DEFAULT_MONITOR_PANELS,
   MONITOR_PANEL_CATALOG,
   monitorPanelService,
   useMonitorPanelStore,
   type MonitorPanelId,
+  type MonitorPluginConfig,
 };
 
 export const MONITOR_VIEWPORT_TYPE = 'monitor.panel';
 
-export const monitorPlugin: PluginDefinition = {
+export const monitorPlugin = definePlugin({
   id: 'lighterm.monitor',
   name: 'System Status Panel',
   version: '1.0.0',
   description: 'Real-time CPU, memory, network, disk, and process monitor viewport',
+  icon: Activity,
+  author: 'Lighterm',
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
 
@@ -37,19 +44,26 @@ export const monitorPlugin: PluginDefinition = {
       typeId: MONITOR_VIEWPORT_TYPE,
       title: 'System Status',
       icon: Activity,
-      defaultDock: 'right-drawer',
+      defaultPosition: 'right-drawer',
       defaultFloatSize: { width: 320, height: 540 },
       singleton: true,
+      openOnStartup: true,
+      activateOnStartup: true,
+      order: 10,
       component: MonitorViewport,
     });
 
+    ctx.registerSettingsPage({
+      id: 'monitor',
+      title: 'System Status',
+      description: 'Configure telemetry refresh interval, default process sort, and status cards.',
+      icon: Activity,
+      order: 20,
+      component: MonitorSettingsPage,
+    });
+
     const toggle = () => {
-      layout.toggleSingletonViewport({
-        typeId: MONITOR_VIEWPORT_TYPE,
-        pluginId: ctx.pluginId,
-        title: 'System Status',
-        preferredDock: 'right-drawer',
-      });
+      layout.toggleSingletonViewport({ typeId: MONITOR_VIEWPORT_TYPE });
     };
 
     ctx.registerSlot({
@@ -91,4 +105,4 @@ export const monitorPlugin: PluginDefinition = {
     window.addEventListener('keydown', onKeyDown);
     ctx.onCleanup(() => window.removeEventListener('keydown', onKeyDown));
   },
-};
+});

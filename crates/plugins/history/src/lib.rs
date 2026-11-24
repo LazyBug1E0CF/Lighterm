@@ -133,6 +133,10 @@ impl CorePlugin for HistoryPlugin {
         "Searchable deduplicated command history recorder and quick launcher"
     }
 
+    fn always_on(&self) -> bool {
+        true
+    }
+
     fn on_activate(&self, ctx: &CoreContext) -> CoreResult<()> {
         *self.storage.write() = Some(Arc::clone(&ctx.storage));
         Ok(())

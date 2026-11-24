@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { HarnessKernel } from '../harness/HarnessKernel';
+import { definePlugin, HarnessKernel } from '../harness';
 import type { PluginDefinition } from '../harness/types';
 
 const DummyIcon: React.FC<{ className?: string }> = () => null;
@@ -232,5 +232,170 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
     kernel.register({ ...baseV2 });
     expect(kernel.isPluginActive('test.base')).toBe(true);
     expect(kernel.isPluginActive('test.consumer')).toBe(false);
+  });
+
+  it('validates plugin IDs, reserved core:* services, cross-plugin viewport conflicts, settings pages, and plugin configs', async () => {
+    window.localStorage.clear();
+    const kernel = new HarnessKernel();
+    kernel.provideCoreService('core:shell', { name: 'shell' });
+
+    // 1. Invalid plugin IDs rejected
+    expect(() =>
+      definePlugin({
+        id: 'invalid_id',
+        name: 'Bad',
+        version: '1.0.0',
+        description: 'Missing namespace dot',
+        activate() {},
+      }),
+    ).toThrow(/Invalid plugin ID/);
+
+    expect(() =>
+      kernel.register({
+        id: 'Bad.Upper',
+        name: 'Bad Upper',
+        version: '1.0.0',
+        description: 'Uppercase rejected',
+        activate() {},
+      }),
+    ).toThrow(/Invalid plugin ID/);
+
+    // 2. Reserved core:* service override fails plugin activation cleanly
+    kernel.register(
+      definePlugin({
+        id: 'acme.hijack',
+        name: 'Hijack',
+        version: '1.0.0',
+        description: 'Attempts to provide core service',
+        activate(ctx) {
+          ctx.provide('core:shell', { fake: true });
+        },
+      }),
+    );
+
+    // 3. Cross-plugin duplicate viewport typeId fails activation
+    kernel.register(
+      definePlugin({
+        id: 'acme.owner',
+        name: 'Owner',
+        version: '1.0.0',
+        description: 'Owns shared.vp',
+        icon: DummyIcon,
+        activate(ctx) {
+          ctx.registerViewport({
+            typeId: 'shared.vp',
+            title: 'Owner VP',
+            icon: DummyIcon,
+            defaultPosition: 'bottom',
+            component: DummyComp,
+          });
+          ctx.registerSettingsPage({
+            id: 'owner-cfg',
+            title: 'Zeta Settings',
+            order: 20,
+            component: DummyComp,
+          });
+        },
+      }),
+    );
+
+    kernel.register(
+      definePlugin({
+        id: 'acme.duplicate',
+        name: 'Duplicate',
+        version: '1.0.0',
+        description: 'Tries to steal shared.vp',
+        activate(ctx) {
+          ctx.registerViewport({
+            typeId: 'shared.vp',
+            title: 'Stolen VP',
+            icon: DummyIcon,
+            defaultDock: 'left-drawer',
+            component: DummyComp,
+          });
+        },
+      }),
+    );
+
+    kernel.register(
+      definePlugin({
+        id: 'acme.alpha',
+        name: 'Alpha',
+        version: '1.0.0',
+        description: 'Legacy defaultDock normalization & early settings order',
+        activate(ctx) {
+          ctx.registerViewport({
+            typeId: 'alpha.vp',
+            title: 'Alpha VP',
+            icon: DummyIcon,
+            defaultDock: 'left-drawer',
+            component: DummyComp,
+          });
+          ctx.registerSettingsPage({
+            id: 'alpha-cfg',
+            title: 'Alpha Settings',
+            icon: DummyIcon,
+            order: 10,
+            component: DummyComp,
+          });
+        },
+      }),
+    );
+
+    const activatedSpy = vi.fn();
+    kernel.onPluginActivated(activatedSpy);
+
+    await kernel.start();
+
+    expect(kernel.isPluginActive('acme.hijack')).toBe(false);
+    expect(kernel.getPluginStatuses().find((p) => p.id === 'acme.hijack')?.error).toMatch(
+      /reserved core service/,
+    );
+
+    expect(kernel.isPluginActive('acme.owner')).toBe(true);
+    expect(kernel.isPluginActive('acme.duplicate')).toBe(false);
+    expect(kernel.getPluginStatuses().find((p) => p.id === 'acme.duplicate')?.error).toMatch(
+      /already registered/,
+    );
+
+    // defaultPosition and defaultDock stay normalized in sync
+    expect(kernel.getViewportDescriptor('shared.vp')?.defaultPosition).toBe('bottom');
+    expect(kernel.getViewportDescriptor('shared.vp')?.defaultDock).toBe('bottom');
+    expect(kernel.getViewportDescriptor('alpha.vp')?.defaultPosition).toBe('left-drawer');
+    expect(kernel.getViewportDescriptor('alpha.vp')?.defaultDock).toBe('left-drawer');
+
+    // Settings pages are ordered and inherit plugin icon fallback
+    expect(kernel.getSettingsPages().map((p) => p.title)).toEqual([
+      'Alpha Settings',
+      'Zeta Settings',
+    ]);
+    expect(kernel.getSettingsPages()[1]?.icon).toBe(DummyIcon);
+    expect(activatedSpy).toHaveBeenCalledWith('acme.owner');
+    expect(activatedSpy).toHaveBeenCalledWith('acme.alpha');
+
+    // Disabling acme.owner removes its settings page cleanly
+    await kernel.disablePlugin('acme.owner');
+    expect(kernel.getSettingsPages().map((p) => p.id)).toEqual(['alpha-cfg']);
+
+    // Plugin config update, persistence, reset, and external localStorage.clear() detection
+    const defaults = { interval: 2500, showBanner: true };
+    expect(kernel.getPluginConfig('acme.alpha', defaults)).toEqual(defaults);
+
+    await kernel.updatePluginConfig('acme.alpha', { interval: 5000 });
+    expect(kernel.getPluginConfig('acme.alpha', defaults)).toEqual({
+      interval: 5000,
+      showBanner: true,
+    });
+    expect(
+      JSON.parse(window.localStorage.getItem('lighterm:plugin-config:acme.alpha') ?? 'null'),
+    ).toEqual({ interval: 5000 });
+
+    window.localStorage.clear();
+    expect(kernel.getPluginConfig('acme.alpha', defaults)).toEqual(defaults);
+
+    await kernel.updatePluginConfig('acme.alpha', { showBanner: false });
+    await kernel.resetPluginConfig('acme.alpha', defaults);
+    expect(kernel.getPluginConfig('acme.alpha', defaults)).toEqual(defaults);
+    expect(window.localStorage.getItem('lighterm:plugin-config:acme.alpha')).toBeNull();
   });
 });

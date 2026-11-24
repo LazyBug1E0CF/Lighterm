@@ -18,13 +18,40 @@ pub struct CoreContext {
     pub sessions: Arc<SessionManager>,
 }
 
+/// Validates that a plugin identifier uses lowercase dot-separated namespaces (e.g. `lighterm.sftp`).
+pub fn is_valid_plugin_id(id: &str) -> bool {
+    let mut segments = id.split('.');
+    let mut count = 0usize;
+    for seg in &mut segments {
+        count += 1;
+        let mut chars = seg.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        if !matches!(first, 'a'..='z' | '0'..='9') {
+            return false;
+        }
+        if !chars.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '_' | '-')) {
+            return false;
+        }
+    }
+    count >= 2
+}
+
 /// Cordis-inspired plugin trait for Lighterm backend capabilities.
 pub trait CorePlugin: Send + Sync + 'static {
     fn id(&self) -> &'static str;
     fn name(&self) -> &'static str;
+    fn version(&self) -> &'static str {
+        "1.0.0"
+    }
     fn description(&self) -> &'static str;
     fn dependencies(&self) -> &'static [&'static str] {
         &[]
+    }
+
+    fn always_on(&self) -> bool {
+        false
     }
 
     fn on_activate(&self, _ctx: &CoreContext) -> CoreResult<()> {
@@ -34,6 +61,9 @@ pub trait CorePlugin: Send + Sync + 'static {
     fn on_deactivate(&self) -> CoreResult<()> {
         Ok(())
     }
+
+    /// Invoked when a saved SSH host profile is updated or deleted so plugins can clear caches.
+    fn on_host_invalidated(&self, _host_id: &str) {}
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 }
@@ -64,9 +94,30 @@ impl PluginRegistry {
     }
 
     pub fn register(&self, plugin: Arc<dyn CorePlugin>, ctx: &CoreContext) -> CoreResult<()> {
-        let id = plugin.id().to_string();
+        let id_str = plugin.id();
+        if !is_valid_plugin_id(id_str) {
+            return Err(CoreError::PluginError(format!(
+                "Invalid plugin ID '{id_str}': expected lowercase dot-separated segments (e.g. 'lighterm.sftp')"
+            )));
+        }
+        if plugin.name().trim().is_empty() {
+            return Err(CoreError::PluginError(format!(
+                "Invalid plugin '{id_str}': name cannot be empty"
+            )));
+        }
+        if plugin.version().trim().is_empty() {
+            return Err(CoreError::PluginError(format!(
+                "Invalid plugin '{id_str}': version cannot be empty"
+            )));
+        }
+
+        let id = id_str.to_string();
         let persisted = ctx.storage.get_plugin_states().unwrap_or_default();
-        let enabled = persisted.get(&id).copied().unwrap_or(true);
+        let enabled = if plugin.always_on() {
+            true
+        } else {
+            persisted.get(&id).copied().unwrap_or(true)
+        };
 
         let deps_satisfied = {
             let entries = self.entries.lock();
@@ -147,8 +198,10 @@ impl PluginRegistry {
             .map(|entry| PluginInfo {
                 id: entry.plugin.id().to_string(),
                 name: entry.plugin.name().to_string(),
+                version: entry.plugin.version().to_string(),
                 description: entry.plugin.description().to_string(),
                 enabled: entry.active,
+                always_on: entry.plugin.always_on(),
                 dependencies: entry
                     .plugin
                     .dependencies()
@@ -157,6 +210,22 @@ impl PluginRegistry {
                     .collect(),
             })
             .collect()
+    }
+
+    pub fn notify_host_invalidated(&self, host_id: &str) {
+        let active_plugins: Vec<Arc<dyn CorePlugin>> = {
+            let entries = self.entries.lock();
+            let order = self.order.lock();
+            order
+                .iter()
+                .filter_map(|id| entries.get(id))
+                .filter(|entry| entry.active)
+                .map(|entry| Arc::clone(&entry.plugin))
+                .collect()
+        };
+        for plugin in active_plugins {
+            plugin.on_host_invalidated(host_id);
+        }
     }
 
     pub fn is_active(&self, id: &str) -> bool {
@@ -221,6 +290,16 @@ impl PluginRegistry {
 
             self.reconcile_activations(ctx)?;
         } else {
+            let is_always_on = {
+                let entries = self.entries.lock();
+                let entry = entries
+                    .get(id)
+                    .ok_or_else(|| CoreError::PluginError(format!("Unknown plugin '{id}'")))?;
+                entry.plugin.always_on()
+            };
+            if is_always_on {
+                return Ok(self.list());
+            }
             self.deactivate_recursive(id)?;
         }
 

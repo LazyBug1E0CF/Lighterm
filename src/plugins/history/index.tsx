@@ -1,21 +1,31 @@
 import { History } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
-import type { PluginDefinition } from '../../harness/types';
+import { definePlugin, harnessKernel } from '../../harness';
 import type { LayoutService } from '../../layout/layoutStore';
 import type { HistoryEntry } from '../../types';
 import { CommandTracker } from '../../utils/commandTracker';
-import { historyClient } from './historyClient';
+import {
+  DEFAULT_HISTORY_CONFIG,
+  historyClient,
+  useHistoryPluginStore,
+  type HistoryPluginConfig,
+} from './historyClient';
+import { HistorySettingsPage } from './HistorySettingsPage';
 import { HistoryViewport } from './HistoryViewport';
 
+export { DEFAULT_HISTORY_CONFIG, type HistoryPluginConfig };
 export const HISTORY_VIEWPORT_TYPE = 'history.panel';
 
-export const historyPlugin: PluginDefinition = {
+export const historyPlugin = definePlugin({
   id: 'lighterm.history',
   name: 'Command History',
   version: '1.0.0',
   description: 'Tracks submitted shell commands directly from core shell I/O streams',
+  icon: History,
+  author: 'Lighterm',
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
+  alwaysOn: true,
 
   activate(ctx) {
     const shell = ctx.inject<ShellService>('core:shell');
@@ -52,19 +62,26 @@ export const historyPlugin: PluginDefinition = {
       typeId: HISTORY_VIEWPORT_TYPE,
       title: 'Command History',
       icon: History,
-      defaultDock: 'left-drawer',
+      defaultPosition: 'left-drawer',
       defaultFloatSize: { width: 340, height: 460 },
       singleton: true,
+      openOnStartup: true,
+      activateOnStartup: false,
+      order: 30,
       component: HistoryViewport,
     });
 
+    ctx.registerSettingsPage({
+      id: 'history',
+      title: 'Command History',
+      description: 'Configure history entry limits, Command Palette suggestions, and cleanup.',
+      icon: History,
+      order: 50,
+      component: HistorySettingsPage,
+    });
+
     const toggle = () => {
-      layout.toggleSingletonViewport({
-        typeId: HISTORY_VIEWPORT_TYPE,
-        pluginId: ctx.pluginId,
-        title: 'Command History',
-        preferredDock: 'left-drawer',
-      });
+      layout.toggleSingletonViewport({ typeId: HISTORY_VIEWPORT_TYPE });
     };
 
     ctx.registerCommand({
@@ -77,7 +94,11 @@ export const historyPlugin: PluginDefinition = {
     let dynDisposers: (() => void)[] = [];
     const syncCommands = (entries: HistoryEntry[]) => {
       dynDisposers.forEach((d) => d());
-      dynDisposers = entries.slice(0, 20).map((h) =>
+      const rawLimit = Number(ctx.getConfig(DEFAULT_HISTORY_CONFIG).paletteHistoryLimit);
+      const limit = Number.isFinite(rawLimit)
+        ? Math.max(0, rawLimit)
+        : DEFAULT_HISTORY_CONFIG.paletteHistoryLimit;
+      dynDisposers = entries.slice(0, limit).map((h) =>
         ctx.registerCommand({
           id: `hist-${h.id}`,
           group: 'History',
@@ -89,16 +110,36 @@ export const historyPlugin: PluginDefinition = {
     };
 
     const unsubChange = historyClient.onChange(syncCommands);
+    let prevPaletteLimit = ctx.getConfig(DEFAULT_HISTORY_CONFIG).paletteHistoryLimit;
+    const unsubConfig = harnessKernel.subscribe(() => {
+      if (!harnessKernel.isPluginActive(ctx.pluginId)) return;
+      const nextLimit = ctx.getConfig(DEFAULT_HISTORY_CONFIG).paletteHistoryLimit;
+      if (nextLimit !== prevPaletteLimit) {
+        prevPaletteLimit = nextLimit;
+        queueMicrotask(() => {
+          if (harnessKernel.isPluginActive(ctx.pluginId)) {
+            syncCommands(useHistoryPluginStore.getState().history);
+          }
+        });
+      }
+    });
+
     ctx.onCleanup(() => {
       unsubOutput();
       unsubInput();
       unsubClosed();
       unsubChange();
+      unsubConfig();
       trackers.clear();
       dynDisposers.forEach((d) => d());
       dynDisposers = [];
     });
 
-    void historyClient.load().catch(() => {});
+    const initialCfg = ctx.getConfig(DEFAULT_HISTORY_CONFIG);
+    const maxDisplay = Math.max(
+      10,
+      Number(initialCfg.maxDisplayEntries) || DEFAULT_HISTORY_CONFIG.maxDisplayEntries,
+    );
+    void historyClient.load(undefined, maxDisplay).catch(() => {});
   },
-};
+});

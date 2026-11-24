@@ -489,6 +489,10 @@ impl CorePlugin for SftpPlugin {
         Ok(())
     }
 
+    fn on_host_invalidated(&self, host_id: &str) {
+        self.invalidate(host_id);
+    }
+
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }

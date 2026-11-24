@@ -117,8 +117,10 @@ export interface ConnectionTestResult {
 export interface BackendPluginInfo {
   id: string;
   name: string;
+  version?: string;
   description: string;
   enabled: boolean;
+  alwaysOn?: boolean;
   dependencies: string[];
 }
 

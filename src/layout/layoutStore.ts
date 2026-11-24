@@ -2,9 +2,11 @@ import { create } from 'zustand';
 import { makeUuid, readLs, writeLs } from '../core/ipc';
 import type { ShellService } from '../core/shellService';
 import { harnessKernel } from '../harness/HarnessKernel';
+import type { PreferredDockPosition } from '../harness/types';
 import {
   buildPresetDockTree,
   collectGroups,
+  createGroup,
   dockViewportAtEdge,
   dockViewportInGroup,
   findGroupContainingViewport,
@@ -700,14 +702,12 @@ export class LayoutService {
     for (const id of nonTerminalDockedIds) {
       const vp = state.viewports[id];
       const desc = vp ? harnessKernel.getViewportDescriptor(vp.typeId) : undefined;
+      const pos = desc?.defaultPosition ?? desc?.defaultDock;
       const edge: DockEdge =
-        desc?.defaultDock === 'left' ||
-        desc?.defaultDock === 'right' ||
-        desc?.defaultDock === 'top' ||
-        desc?.defaultDock === 'bottom'
-          ? desc.defaultDock
+        pos === 'left' || pos === 'right' || pos === 'top' || pos === 'bottom'
+          ? pos
           : 'bottom';
-      nextRoot = dockViewportAtEdge(nextRoot, id, edge);
+      nextRoot = dockViewportAtEdge(nextRoot, id, edge, desc?.defaultDockRatio);
     }
 
     const nextActive =
@@ -749,21 +749,27 @@ export class LayoutService {
 
   openViewport(opts: OpenViewportOptions): ViewportInstance {
     const state = useLayoutStore.getState();
+    const desc = harnessKernel.getViewportDescriptor(opts.typeId);
     const id = opts.id ?? makeUuid('vp');
+    const resolvedPluginId = opts.pluginId ?? desc?.pluginId ?? 'unknown';
+    const resolvedTitle = opts.title ?? desc?.title ?? opts.typeId;
+    const preferredDock = opts.preferredDock ?? desc?.defaultPosition ?? desc?.defaultDock ?? 'center';
+    const dockRatio = opts.dockRatio ?? desc?.defaultDockRatio;
+
     const instance: ViewportInstance = {
       id,
       typeId: opts.typeId,
-      pluginId: opts.pluginId,
-      title: opts.title,
+      pluginId: resolvedPluginId,
+      title: resolvedTitle,
       params: opts.params,
     };
 
     const nextViewports = { ...state.viewports, [id]: instance };
     const snap = captureLayoutSnapshot('layout');
 
-    if (opts.preferredDock === 'left-drawer' || opts.preferredDock === 'right-drawer') {
+    if (preferredDock === 'left-drawer' || preferredDock === 'right-drawer') {
       const activate = opts.activateDrawer ?? true;
-      const side: DrawerSide = opts.preferredDock === 'left-drawer' ? 'left' : 'right';
+      const side: DrawerSide = preferredDock === 'left-drawer' ? 'left' : 'right';
       const drawerKey = side === 'left' ? 'leftDrawer' : 'rightDrawer';
       const nextDrawer = insertViewportIntoDrawer(state[drawerKey], id, activate);
       useLayoutStore.setState((s) =>
@@ -777,9 +783,13 @@ export class LayoutService {
       return instance;
     }
 
-    if (opts.preferredDock === 'float') {
+    if (preferredDock === 'float') {
       const nextZ = state.topZIndex + 1;
-      const rect = clampFloatRect(opts.floatRect ?? {}, state.workspaceBounds, state.floating.length);
+      const rect = clampFloatRect(
+        { ...desc?.defaultFloatSize, ...opts.floatRect },
+        state.workspaceBounds,
+        state.floating.length,
+      );
       useLayoutStore.setState((s) =>
         mirrorActiveWorkspace(s, {
           viewports: nextViewports,
@@ -797,7 +807,7 @@ export class LayoutService {
     const isAutoPresetTerminal =
       opts.typeId === TERMINAL_VIEWPORT_TYPE &&
       !isExplicitSplit &&
-      (opts.preferredDock === 'center' || !opts.preferredDock) &&
+      preferredDock === 'center' &&
       Boolean(state.activeLayoutPreset && state.activeLayoutPreset !== 'tab');
 
     if (opts.targetGroupId) {
@@ -807,7 +817,7 @@ export class LayoutService {
         opts.targetGroupId,
         opts.splitZone ?? 'center',
       );
-    } else if (opts.preferredDock === 'center' || !opts.preferredDock) {
+    } else if (preferredDock === 'center') {
       const groups = collectGroups(state.dockRoot);
       const sameTypeGroups = groups.filter((g) =>
         g.viewportIds.some((vid) => nextViewports[vid]?.typeId === opts.typeId),
@@ -821,12 +831,67 @@ export class LayoutService {
         nextRoot = dockViewportInGroup(state.dockRoot, id, targetSameTypeGroup.id, 'center');
       } else if (groups.length === 0) {
         nextRoot = dockViewportAtEdge(null, id, 'left');
+      } else if (groups.length === 1 && state.dockRoot) {
+        const soleGroup = groups[0];
+        const edgePositions = soleGroup.viewportIds
+          .map((vid) => {
+            const vp = nextViewports[vid];
+            const vpDesc = vp ? harnessKernel.getViewportDescriptor(vp.typeId) : undefined;
+            return vpDesc?.defaultPosition ?? vpDesc?.defaultDock;
+          })
+          .filter((p): p is DockEdge => p === 'left' || p === 'right' || p === 'top' || p === 'bottom');
+        if (soleGroup.viewportIds.length > 0 && edgePositions.length === soleGroup.viewportIds.length) {
+          const edge = edgePositions[0];
+          const firstVp = nextViewports[soleGroup.viewportIds[0]];
+          const firstDesc = firstVp ? harnessKernel.getViewportDescriptor(firstVp.typeId) : undefined;
+          const newGroup = createGroup(id);
+          if (edge === 'bottom') {
+            nextRoot = {
+              type: 'split',
+              id: makeUuid('split'),
+              direction: 'vertical',
+              ratio: firstDesc?.defaultDockRatio ?? 0.68,
+              first: newGroup,
+              second: state.dockRoot,
+            };
+          } else if (edge === 'top') {
+            nextRoot = {
+              type: 'split',
+              id: makeUuid('split'),
+              direction: 'vertical',
+              ratio: firstDesc?.defaultDockRatio ?? 0.3,
+              first: state.dockRoot,
+              second: newGroup,
+            };
+          } else if (edge === 'left') {
+            nextRoot = {
+              type: 'split',
+              id: makeUuid('split'),
+              direction: 'horizontal',
+              ratio: firstDesc?.defaultDockRatio ?? 0.22,
+              first: state.dockRoot,
+              second: newGroup,
+            };
+          } else {
+            nextRoot = {
+              type: 'split',
+              id: makeUuid('split'),
+              direction: 'horizontal',
+              ratio: firstDesc?.defaultDockRatio ?? 0.76,
+              first: newGroup,
+              second: state.dockRoot,
+            };
+          }
+        } else {
+          const middleGroup = groups[Math.floor(groups.length / 2)];
+          nextRoot = dockViewportInGroup(state.dockRoot, id, middleGroup.id, 'center');
+        }
       } else {
         const middleGroup = groups[Math.floor(groups.length / 2)];
         nextRoot = dockViewportInGroup(state.dockRoot, id, middleGroup.id, 'center');
       }
     } else {
-      nextRoot = dockViewportAtEdge(state.dockRoot, id, opts.preferredDock);
+      nextRoot = dockViewportAtEdge(state.dockRoot, id, preferredDock, dockRatio);
     }
 
     const nextPreset =
@@ -851,7 +916,43 @@ export class LayoutService {
     return instance;
   }
 
-  toggleSingletonViewport(opts: Omit<OpenViewportOptions, 'id'>): ViewportInstance | null {
+  private placeDetachedViewport(
+    viewportId: string,
+    preferred: PreferredDockPosition,
+    dockRatio?: number,
+    floatRect?: Partial<FloatingRect>,
+  ): void {
+    if (preferred === 'left-drawer' || preferred === 'right-drawer') {
+      this.dockToDrawer(viewportId, preferred === 'left-drawer' ? 'left' : 'right', true);
+    } else if (preferred === 'float') {
+      this.floatViewport(viewportId, floatRect);
+    } else if (preferred === 'center') {
+      const firstGroup = collectGroups(useLayoutStore.getState().dockRoot)[0];
+      if (firstGroup) {
+        this.dockToGroup(viewportId, firstGroup.id, 'center');
+      } else {
+        this.dockToEdge(viewportId, 'left');
+      }
+    } else {
+      this.dockToEdge(viewportId, preferred, dockRatio);
+    }
+  }
+
+  toggleSingletonViewport(
+    opts: { typeId: string } & Partial<Omit<OpenViewportOptions, 'id' | 'typeId'>>,
+  ): ViewportInstance | null {
+    const desc = harnessKernel.getViewportDescriptor(opts.typeId);
+    const preferred = opts.preferredDock ?? desc?.defaultPosition ?? desc?.defaultDock ?? 'bottom';
+    const resolvedOpts: OpenViewportOptions = {
+      ...opts,
+      typeId: opts.typeId,
+      pluginId: opts.pluginId ?? desc?.pluginId ?? 'unknown',
+      title: opts.title ?? desc?.title ?? opts.typeId,
+      preferredDock: preferred,
+      dockRatio: opts.dockRatio ?? desc?.defaultDockRatio,
+      floatRect: opts.floatRect ?? desc?.defaultFloatSize,
+    };
+
     const existing = this.findViewportsByType(opts.typeId)[0];
     if (existing) {
       const loc = this.getViewportLocation(existing.id);
@@ -870,21 +971,81 @@ export class LayoutService {
         return existing;
       }
       if (loc === null) {
-        const preferred = opts.preferredDock ?? 'bottom';
-        if (preferred === 'left-drawer' || preferred === 'right-drawer') {
-          this.dockToDrawer(existing.id, preferred === 'left-drawer' ? 'left' : 'right', true);
-        } else if (preferred === 'float') {
-          this.floatViewport(existing.id, opts.floatRect);
-        } else {
-          const edge: DockEdge = preferred === 'center' ? 'bottom' : preferred;
-          this.dockToEdge(existing.id, edge);
-        }
+        this.placeDetachedViewport(
+          existing.id,
+          preferred,
+          resolvedOpts.dockRatio,
+          resolvedOpts.floatRect,
+        );
         return existing;
       }
       this.closeViewport(existing.id);
       return null;
     }
-    return this.openViewport(opts);
+    return this.openViewport(resolvedOpts);
+  }
+
+  openPluginViewport(
+    typeId: string,
+    opts?: Partial<Omit<OpenViewportOptions, 'typeId'>>,
+  ): ViewportInstance | null {
+    const desc = harnessKernel.getViewportDescriptor(typeId);
+    const preferred = opts?.preferredDock ?? desc?.defaultPosition ?? desc?.defaultDock ?? 'center';
+    if (desc?.singleton) {
+      const existing = this.findViewportsByType(typeId)[0];
+      if (existing) {
+        const loc = this.getViewportLocation(existing.id);
+        if (loc === null) {
+          this.placeDetachedViewport(
+            existing.id,
+            preferred,
+            opts?.dockRatio ?? desc.defaultDockRatio,
+            opts?.floatRect ?? desc.defaultFloatSize,
+          );
+        } else {
+          this.setActiveViewport(existing.id);
+        }
+        return existing;
+      }
+    }
+    return this.openViewport({
+      ...opts,
+      typeId,
+      preferredDock: preferred,
+    });
+  }
+
+  mountStartupPluginViewports(
+    scope: 'drawers' | 'workspace' | 'all' = 'all',
+    onlyPluginId?: string,
+  ): void {
+    const descriptors = harnessKernel
+      .getViewportDescriptors()
+      .filter((desc) => {
+        if (!desc.openOnStartup || desc.singleton === false) return false;
+        if (!harnessKernel.isPluginActive(desc.pluginId)) return false;
+        if (onlyPluginId && desc.pluginId !== onlyPluginId) return false;
+        const pos = desc.defaultPosition ?? desc.defaultDock;
+        const isDrawer = pos === 'left-drawer' || pos === 'right-drawer';
+        if (scope === 'drawers') return isDrawer;
+        if (scope === 'workspace') return !isDrawer;
+        return true;
+      })
+      .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
+
+    for (const desc of descriptors) {
+      if (this.findViewportsByType(desc.typeId).length > 0) continue;
+      const pos = desc.defaultPosition ?? desc.defaultDock;
+      this.openViewport({
+        typeId: desc.typeId,
+        pluginId: desc.pluginId,
+        title: desc.title,
+        preferredDock: pos,
+        dockRatio: desc.defaultDockRatio,
+        floatRect: desc.defaultFloatSize,
+        activateDrawer: desc.activateOnStartup ?? Boolean(onlyPluginId),
+      });
+    }
   }
 
   closeViewport(viewportId: string): void {
@@ -1361,21 +1522,13 @@ export class LayoutService {
     };
 
     const terminals = scopedViewports.filter((v) => v.typeId === TERMINAL_VIEWPORT_TYPE);
-    const leftDefaults = scopedViewports.filter(
-      (v) =>
-        v.typeId === 'hosts.manager' ||
-        v.typeId === 'snippets.panel' ||
-        v.typeId === 'history.panel',
-    );
-    const monitors = scopedViewports.filter((v) => v.typeId === 'monitor.panel');
-    const others = scopedViewports.filter(
-      (v) =>
-        v.typeId !== TERMINAL_VIEWPORT_TYPE &&
-        v.typeId !== 'hosts.manager' &&
-        v.typeId !== 'snippets.panel' &&
-        v.typeId !== 'history.panel' &&
-        v.typeId !== 'monitor.panel',
-    );
+    const nonTerminals = scopedViewports
+      .filter((v) => v.typeId !== TERMINAL_VIEWPORT_TYPE)
+      .sort((a, b) => {
+        const da = harnessKernel.getViewportDescriptor(a.typeId);
+        const db = harnessKernel.getViewportDescriptor(b.typeId);
+        return (da?.order ?? 100) - (db?.order ?? 100) || a.title.localeCompare(b.title);
+      });
 
     nextRoot = buildPresetDockTree(
       terminals.map((t) => t.id),
@@ -1383,37 +1536,51 @@ export class LayoutService {
       state.activeViewportId,
     );
 
-    for (const v of leftDefaults) {
-      nextLeft = insertViewportIntoDrawer(nextLeft, v.id, v.typeId === 'hosts.manager');
+    const nextFloating: FloatingViewportItem[] = [];
+    let nextTopZ = state.topZIndex;
+
+    for (const v of nonTerminals) {
+      const desc = harnessKernel.getViewportDescriptor(v.typeId);
+      const pos = desc?.defaultPosition ?? desc?.defaultDock ?? 'bottom';
+      if (pos === 'left-drawer') {
+        nextLeft = insertViewportIntoDrawer(nextLeft, v.id, Boolean(desc?.activateOnStartup));
+      } else if (pos === 'right-drawer') {
+        nextRight = insertViewportIntoDrawer(nextRight, v.id, Boolean(desc?.activateOnStartup));
+      } else if (pos === 'float') {
+        nextTopZ += 1;
+        const rect = clampFloatRect(
+          desc?.defaultFloatSize ?? {},
+          state.workspaceBounds,
+          nextFloating.length,
+        );
+        nextFloating.push({ viewportId: v.id, ...rect, zIndex: nextTopZ });
+      } else if (pos === 'center') {
+        const firstGroup = collectGroups(nextRoot)[0];
+        nextRoot = firstGroup
+          ? dockViewportInGroup(nextRoot, v.id, firstGroup.id, 'center')
+          : dockViewportAtEdge(null, v.id, 'left');
+      } else {
+        nextRoot = dockViewportAtEdge(nextRoot, v.id, pos, desc?.defaultDockRatio);
+      }
     }
+
     if (nextLeft.viewportIds.length > 0 && !nextLeft.activeViewportId) {
       nextLeft.activeViewportId = nextLeft.viewportIds[0];
     }
     nextLeft.open = nextLeft.viewportIds.length > 0;
 
-    for (const m of monitors) {
-      nextRight = insertViewportIntoDrawer(nextRight, m.id, true);
+    if (nextRight.viewportIds.length > 0 && !nextRight.activeViewportId) {
+      nextRight.activeViewportId = nextRight.viewportIds[0];
     }
     nextRight.open = nextRight.viewportIds.length > 0;
-
-    for (const o of others) {
-      const desc = harnessKernel.getViewportDescriptor(o.typeId);
-      const edge =
-        desc?.defaultDock === 'left' ||
-        desc?.defaultDock === 'right' ||
-        desc?.defaultDock === 'top' ||
-        desc?.defaultDock === 'bottom'
-          ? desc.defaultDock
-          : 'bottom';
-      nextRoot = dockViewportAtEdge(nextRoot, o.id, edge);
-    }
 
     useLayoutStore.setState((s) =>
       mirrorActiveWorkspace(s, {
         leftDrawer: nextLeft,
         rightDrawer: nextRight,
         dockRoot: nextRoot,
-        floating: [],
+        floating: nextFloating,
+        topZIndex: nextTopZ,
         maximizedViewportId: null,
         activeLayoutPreset: 'tab',
         layoutTransitionSeq: snap.seq,

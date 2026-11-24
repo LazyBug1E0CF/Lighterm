@@ -78,10 +78,11 @@ export interface ViewportDragState {
 export interface OpenViewportOptions {
   id?: string;
   typeId: string;
-  pluginId: string;
-  title: string;
+  pluginId?: string;
+  title?: string;
   params?: Record<string, unknown>;
   preferredDock?: PreferredDockPosition;
+  dockRatio?: number;
   activateDrawer?: boolean;
   targetGroupId?: string;
   splitZone?: DockZone;

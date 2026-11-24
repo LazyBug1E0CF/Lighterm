@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
+import { usePluginConfig } from '../../harness';
 import type { ViewportComponentProps } from '../../harness/types';
 import type { SystemStats } from '../../types';
 import { fetchSystemStats } from './monitorClient';
@@ -35,6 +36,7 @@ import {
   type PanelBaseRect,
 } from './monitorDragLayout';
 import {
+  DEFAULT_MONITOR_CONFIG,
   DEFAULT_MONITOR_PANELS,
   isDefaultPanelOrder,
   MONITOR_PANEL_CATALOG,
@@ -334,6 +336,10 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
     activeSessionId ? s.sessions[activeSessionId] : undefined,
   );
   const panels = useMonitorPanelStore((s) => s.panels);
+  const { config: monitorConfig } = usePluginConfig(
+    'lighterm.monitor',
+    DEFAULT_MONITOR_CONFIG,
+  );
 
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [cpuHistory, setCpuHistory] = useState<number[]>([]);
@@ -342,7 +348,7 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
   const [paused, setPaused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [procSort, setProcSort] = useState<'cpu' | 'mem'>('cpu');
+  const [procSort, setProcSort] = useState<'cpu' | 'mem'>(monitorConfig.defaultProcessSort);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [panelDrag, setPanelDrag] = useState<PanelDragState | null>(null);
   const [flipSeq, setFlipSeq] = useState(0);
@@ -416,13 +422,18 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
   }, [targetKey]);
 
   useEffect(() => {
+    setProcSort(monitorConfig.defaultProcessSort);
+  }, [monitorConfig.defaultProcessSort]);
+
+  useEffect(() => {
     if (paused || !hasPanels) return;
+    const pollMs = Math.max(500, Number(monitorConfig.pollIntervalMs) || POLL_INTERVAL_MS);
     void fetchStats();
     const timer = window.setInterval(() => {
       void fetchStats();
-    }, POLL_INTERVAL_MS);
+    }, pollMs);
     return () => window.clearInterval(timer);
-  }, [paused, hasPanels, targetKey, fetchStats]);
+  }, [paused, hasPanels, targetKey, fetchStats, monitorConfig.pollIntervalMs]);
 
   useEffect(() => {
     if (!addMenuOpen) return;

@@ -1,7 +1,22 @@
 import React from 'react';
-import { Layers, PanelLeft, PanelRight, Puzzle, ShieldCheck, X } from 'lucide-react';
+import {
+  ArrowDownToLine,
+  Layers,
+  PanelLeft,
+  PanelRight,
+  Puzzle,
+  Settings,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
-import { useHarness, usePluginStatuses, useViewportDescriptors } from '../../harness/HarnessContext';
+import {
+  useHarness,
+  usePluginSettingsPages,
+  usePluginStatuses,
+  useViewportDescriptors,
+  VIEWPORT_POSITION_LABELS,
+} from '../../harness';
 import { layoutService, useLayoutStore } from '../../layout/layoutStore';
 
 export const PluginManagerModal: React.FC = () => {
@@ -12,6 +27,7 @@ export const PluginManagerModal: React.FC = () => {
   const harness = useHarness();
   const plugins = usePluginStatuses();
   const descriptors = useViewportDescriptors();
+  const settingsPages = usePluginSettingsPages();
   const viewports = useLayoutStore((s) => s.viewports);
 
   if (!open) return null;
@@ -19,27 +35,10 @@ export const PluginManagerModal: React.FC = () => {
   const openPluginViewport = (pluginId: string) => {
     const desc = Object.values(descriptors).find((d) => d.pluginId === pluginId);
     if (!desc) return;
-    if (desc.singleton) {
-      const existing = layoutService.findViewportsByType(desc.typeId)[0];
-      if (existing) {
-        layoutService.setActiveViewport(existing.id);
-      } else {
-        layoutService.openViewport({
-          typeId: desc.typeId,
-          pluginId: desc.pluginId,
-          title: desc.title,
-          preferredDock: desc.defaultDock,
-        });
-      }
-    } else if (desc.typeId === 'terminal.viewport') {
+    if (desc.typeId === 'terminal.viewport') {
       void shellService.createLocalSession();
     } else {
-      layoutService.openViewport({
-        typeId: desc.typeId,
-        pluginId: desc.pluginId,
-        title: desc.title,
-        preferredDock: desc.defaultDock,
-      });
+      layoutService.openPluginViewport(desc.typeId);
     }
     shellService.setPluginManagerOpen(false);
   };
@@ -67,6 +66,42 @@ export const PluginManagerModal: React.FC = () => {
         pluginId: desc.pluginId,
         title: desc.title,
         preferredDock: side === 'left' ? 'left-drawer' : 'right-drawer',
+      });
+    }
+    shellService.setPluginManagerOpen(false);
+  };
+
+  const dockPluginToBottom = (pluginId: string) => {
+    const desc = Object.values(descriptors).find((d) => d.pluginId === pluginId);
+    if (!desc) return;
+    if (desc.singleton) {
+      const existing = layoutService.findViewportsByType(desc.typeId)[0];
+      if (existing) {
+        layoutService.dockToEdge(existing.id, 'bottom', desc.defaultDockRatio);
+      } else {
+        layoutService.openViewport({
+          typeId: desc.typeId,
+          pluginId: desc.pluginId,
+          title: desc.title,
+          preferredDock: 'bottom',
+          dockRatio: desc.defaultDockRatio,
+        });
+      }
+    } else if (desc.typeId === 'terminal.viewport') {
+      void shellService.createLocalSession().then((info) => {
+        if (!info) return;
+        const vp = layoutService
+          .findViewportsByType('terminal.viewport')
+          .find((v) => String(v.params?.sessionId ?? '') === info.id);
+        if (vp) layoutService.dockToEdge(vp.id, 'bottom');
+      });
+    } else {
+      layoutService.openViewport({
+        typeId: desc.typeId,
+        pluginId: desc.pluginId,
+        title: desc.title,
+        preferredDock: 'bottom',
+        dockRatio: desc.defaultDockRatio,
       });
     }
     shellService.setPluginManagerOpen(false);
@@ -131,7 +166,11 @@ export const PluginManagerModal: React.FC = () => {
               const vpCount = Object.values(viewports).filter(
                 (v) => v.pluginId === plugin.id,
               ).length;
-              const hasViewport = Object.values(descriptors).some((d) => d.pluginId === plugin.id);
+              const primaryDesc = Object.values(descriptors).find(
+                (d) => d.pluginId === plugin.id,
+              );
+              const hasViewport = Boolean(primaryDesc);
+              const settingsPage = settingsPages.find((p) => p.pluginId === plugin.id);
 
               return (
                 <div
@@ -163,13 +202,18 @@ export const PluginManagerModal: React.FC = () => {
                               ? 'Waiting Deps'
                               : 'Disabled'}
                         </span>
+                        {plugin.active && primaryDesc && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-elevated)] text-[var(--text-muted)]">
+                            Default: {VIEWPORT_POSITION_LABELS[primaryDesc.defaultPosition]}
+                          </span>
+                        )}
                       </div>
                       <p className="mt-1 text-[11px] text-[var(--text-muted)]">
                         {plugin.description}
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
                       {plugin.active && hasViewport && (
                         <>
                           <button
@@ -194,6 +238,16 @@ export const PluginManagerModal: React.FC = () => {
                           </button>
                           <button
                             type="button"
+                            onClick={() => dockPluginToBottom(plugin.id)}
+                            title="Dock Viewport to Bottom Panel"
+                            aria-label={`Bottom Dock ${plugin.name}`}
+                            className="h-7 px-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
+                          >
+                            <ArrowDownToLine className="w-3 h-3" />
+                            <span>Bottom</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => openPluginViewport(plugin.id)}
                             className="h-7 px-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
                           >
@@ -201,6 +255,22 @@ export const PluginManagerModal: React.FC = () => {
                             <span>{vpCount > 0 ? `Focus (${vpCount})` : 'Open'}</span>
                           </button>
                         </>
+                      )}
+
+                      {plugin.active && settingsPage && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            shellService.setPluginManagerOpen(false);
+                            shellService.openSettings(`${settingsPage.pluginId}:${settingsPage.id}`);
+                          }}
+                          title={`Configure ${plugin.name}`}
+                          aria-label={`Configure ${plugin.name}`}
+                          className="h-7 px-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
+                        >
+                          <Settings className="w-3 h-3" />
+                          <span>Configure</span>
+                        </button>
                       )}
 
                       {plugin.alwaysOn ? (

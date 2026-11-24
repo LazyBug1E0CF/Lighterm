@@ -9,8 +9,10 @@ The core contains **only**:
 - **Shell Connections**: Local PTY (`portable-pty`) and async SSH2 (`russh`) connection pooling & active shell `SessionManager`
 - **Persistence & Config**: Atomic JSON persistence (`hosts.json` with `0600` Unix permissions, `settings.json`, `plugins.json`, and generic plugin JSON storage)
 - **Plugin Kernel**:
-  - Rust: `CorePlugin` trait & `PluginRegistry` (`crates/lighterm-core/src/plugin.rs`) with explicit dependency verification and cascading activation/deactivation
-  - Frontend: Cordis-inspired `HarnessKernel` (`src/harness/HarnessKernel.ts`) with `inject` / `provide`, `EffectScope` reversible cleanup, slot registration, and live runtime toggling via **Plugin Manager** (`Ctrl+Shift+X`)
+  - Rust: `CorePlugin` trait (`id`, `name`, `version`, `dependencies`, `on_activate`, `on_deactivate`, `on_host_invalidated`) & `PluginRegistry` (`crates/lighterm-core/src/plugin.rs`) with ID namespace validation, dependency verification, and cascading activation/deactivation
+  - Frontend: Cordis-inspired `HarnessKernel` (`src/harness/`) with `definePlugin`, `inject` / `provide`, `EffectScope` reversible cleanup, declarative viewport default positioning (`defaultPosition`: `left-drawer`, `right-drawer`, `bottom`, `top`, `left`, `right`, `center`, `float`), Settings `Plugins` section (`ctx.registerSettingsPage`), standardized `PluginConfig` persistence (`plugin-configs.json` + `localStorage`), and live runtime toggling via **Plugin Manager** (`Ctrl+Shift+X`)
+- **Plugin Development Specification**: See [`docs/PLUGIN_DEVELOPMENT.md`](docs/PLUGIN_DEVELOPMENT.md) for the complete frontend/backend plugin contract, viewport layout guidelines, and Settings integration spec.
+- **AI Agent Skill (`skills/`)**: Install [`skills/lighterm-plugin-development`](skills/lighterm-plugin-development/SKILL.md) into any compatible AI coding agent (Claude Code, Cursor, Codex, Antigravity, Gemini CLI, etc.) — see [`skills/README.md`](skills/README.md) for setup instructions.
 - **Universal Viewport Layout Engine (`src/layout/`)**:
   - Unified recursive `DockNode` split/tab tree + `FloatingViewportLayer`
   - Every plugin viewport can be dragged by its tab/header, snapped to any outer workspace edge (`Left`, `Right`, `Top`, `Bottom`), split/merged into any docked panel via the 5-zone Dock Compass HUD, undocked into a free-floating window, and resized via split sashes or 8-direction floating window handles

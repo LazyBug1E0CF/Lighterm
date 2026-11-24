@@ -4,6 +4,16 @@ import type { HistoryEntry, SessionKind } from '../../types';
 
 const LS_HISTORY = 'lighterm:history';
 
+export interface HistoryPluginConfig extends Record<string, unknown> {
+  maxDisplayEntries: number;
+  paletteHistoryLimit: number;
+}
+
+export const DEFAULT_HISTORY_CONFIG: HistoryPluginConfig = {
+  maxDisplayEntries: 200,
+  paletteHistoryLimit: 20,
+};
+
 export const useHistoryPluginStore = create<{ history: HistoryEntry[] }>(() => ({
   history: [],
 }));

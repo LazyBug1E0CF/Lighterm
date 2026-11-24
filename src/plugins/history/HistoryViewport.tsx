@@ -1,24 +1,37 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CornerDownLeft, History, Play, Search, Trash2 } from 'lucide-react';
 import { shellService } from '../../core/shellService';
+import { usePluginConfig } from '../../harness';
 import type { ViewportComponentProps } from '../../harness/types';
-import { historyClient, useHistoryPluginStore } from './historyClient';
+import {
+  DEFAULT_HISTORY_CONFIG,
+  historyClient,
+  useHistoryPluginStore,
+} from './historyClient';
 
 export const HistoryViewport: React.FC<ViewportComponentProps> = () => {
   const history = useHistoryPluginStore((s) => s.history);
+  const { config: historyConfig } = usePluginConfig('lighterm.history', DEFAULT_HISTORY_CONFIG);
   const [query, setQuery] = useState('');
 
+  const rawMax = Number(historyConfig.maxDisplayEntries);
+  const maxEntries = Number.isFinite(rawMax)
+    ? Math.max(10, rawMax)
+    : DEFAULT_HISTORY_CONFIG.maxDisplayEntries;
+
   useEffect(() => {
-    void historyClient.load();
-  }, []);
+    void historyClient.load(undefined, maxEntries);
+  }, [maxEntries]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return history;
-    return history.filter(
-      (h) => h.command.toLowerCase().includes(q) || h.hostLabel.toLowerCase().includes(q),
-    );
-  }, [history, query]);
+    const list = q
+      ? history.filter(
+          (h) => h.command.toLowerCase().includes(q) || h.hostLabel.toLowerCase().includes(q),
+        )
+      : history;
+    return list.slice(0, maxEntries);
+  }, [history, query, maxEntries]);
 
   return (
     <div className="h-full flex flex-col">

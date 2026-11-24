@@ -1,7 +1,7 @@
 import React from 'react';
 import { Columns2, Rows2, Terminal } from 'lucide-react';
 import { type ShellService, useShellStore } from '../../core/shellService';
-import type { PluginDefinition } from '../../harness/types';
+import { definePlugin } from '../../harness';
 import type { LayoutService } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { TERMINAL_VIEWPORT_TYPE, TerminalPluginService } from './terminalService';
@@ -23,11 +23,13 @@ const TerminalDimensionsBadge: React.FC = () => {
   );
 };
 
-export const terminalPlugin: PluginDefinition = {
+export const terminalPlugin = definePlugin({
   id: 'lighterm.terminal',
   name: 'Terminal Viewport',
   version: '1.0.0',
   description: 'Interactive xterm.js terminal viewport with split panes, search, and settings',
+  icon: Terminal,
+  author: 'Lighterm',
   inject: ['core:shell', 'core:layout'],
   provides: ['terminal:service'],
   defaultEnabled: true,
@@ -102,7 +104,7 @@ export const terminalPlugin: PluginDefinition = {
       typeId: TERMINAL_VIEWPORT_TYPE,
       title: 'Terminal',
       icon: Terminal,
-      defaultDock: 'center',
+      defaultPosition: 'center',
       defaultFloatSize: { width: 680, height: 420 },
       singleton: false,
       component: TerminalViewport,
@@ -195,12 +197,13 @@ export const terminalPlugin: PluginDefinition = {
       render: () => <TerminalDimensionsBadge />,
     });
 
-    ctx.registerSlot({
-      id: 'terminal-settings',
-      slot: 'settings:tabs',
-      order: 20,
-      label: 'Terminal',
-      render: () => <TerminalSettingsTab />,
+    ctx.registerSettingsPage({
+      id: 'terminal',
+      title: 'Terminal',
+      description: 'Configure terminal font, cursor style, scrollback buffer, and selection behavior.',
+      icon: Terminal,
+      order: 10,
+      component: TerminalSettingsTab,
     });
 
     ctx.registerCommand({
@@ -271,4 +274,4 @@ export const terminalPlugin: PluginDefinition = {
     window.addEventListener('keydown', onKeyDown);
     ctx.onCleanup(() => window.removeEventListener('keydown', onKeyDown));
   },
-};
+});

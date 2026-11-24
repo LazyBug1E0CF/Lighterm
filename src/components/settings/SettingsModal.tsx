@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { Keyboard, Palette, Puzzle, RotateCcw, X } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
-import { useSlotItems } from '../../harness/HarnessContext';
+import {
+  usePluginSettingsPages,
+  usePluginStatuses,
+  useSlotItems,
+  type PluginIconComponent,
+} from '../../harness';
 import { THEME_PRESETS } from '../../themes/presets';
 import type { ShortcutMap } from '../../types';
 import { DEFAULT_SHORTCUTS, formatKeyboardEvent } from '../../utils/shortcuts';
@@ -26,14 +31,66 @@ const SHORTCUT_LABELS: { key: keyof ShortcutMap; label: string }[] = [
 export const SettingsModal: React.FC = () => {
   const open = useShellStore((s) => s.settingsModalOpen);
   const settings = useShellStore((s) => s.settings);
-  const pluginSettingsTabs = useSlotItems('settings:tabs');
+  const settingsActiveTab = useShellStore((s) => s.settingsActiveTab);
+  const pluginStatuses = usePluginStatuses();
+  const pluginPages = usePluginSettingsPages();
+  const legacyPluginTabs = useSlotItems('settings:tabs');
 
-  const [tab, setTab] = useState<string>('appearance');
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutMap | null>(null);
 
   if (!open) return null;
 
-  const activePluginTab = pluginSettingsTabs.find((t) => `${t.pluginId}:${t.id}` === tab);
+  const alwaysOnPluginIds = new Set(
+    pluginStatuses.filter((p) => p.alwaysOn).map((p) => p.id),
+  );
+  const pageKeys = new Set(pluginPages.map((p) => `${p.pluginId}:${p.id}`));
+  const extraLegacyTabs = legacyPluginTabs.filter(
+    (t) => !pageKeys.has(`${t.pluginId}:${t.id}`),
+  );
+
+  const generalPluginPages = pluginPages.filter((p) => alwaysOnPluginIds.has(p.pluginId));
+  const optionalPluginPages = pluginPages.filter((p) => !alwaysOnPluginIds.has(p.pluginId));
+  const generalLegacyTabs = extraLegacyTabs.filter((t) => alwaysOnPluginIds.has(t.pluginId));
+  const optionalLegacyTabs = extraLegacyTabs.filter((t) => !alwaysOnPluginIds.has(t.pluginId));
+  const totalOptionalPluginPages = optionalPluginPages.length + optionalLegacyTabs.length;
+
+  const activePage = pluginPages.find((p) => `${p.pluginId}:${p.id}` === settingsActiveTab);
+  const activeLegacyTab = !activePage
+    ? extraLegacyTabs.find((t) => `${t.pluginId}:${t.id}` === settingsActiveTab)
+    : undefined;
+
+  const effectiveTab =
+    settingsActiveTab === 'appearance' ||
+    settingsActiveTab === 'shortcuts' ||
+    activePage ||
+    activeLegacyTab
+      ? settingsActiveTab
+      : 'appearance';
+
+  const ActivePageComponent = activePage?.component;
+  const ActivePageIcon = activePage?.icon ?? Puzzle;
+
+  const renderNavButton = (
+    key: string,
+    label: string,
+    Icon: PluginIconComponent,
+    onClick: () => void,
+    isActive: boolean,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      onClick={onClick}
+      className={`w-full px-3 py-2 rounded-md flex items-center gap-2 text-left transition-colors ${
+        isActive
+          ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-medium'
+          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+      }`}
+    >
+      <Icon className="w-3.5 h-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
+  );
 
   return (
     <div
@@ -44,7 +101,7 @@ export const SettingsModal: React.FC = () => {
         role="dialog"
         aria-label="Settings"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl rounded-xl border shadow-2xl overflow-hidden flex flex-col max-h-[82vh]"
+        className="w-full max-w-3xl rounded-xl border shadow-2xl overflow-hidden flex flex-col max-h-[82vh]"
         style={{
           backgroundColor: 'var(--bg-surface)',
           borderColor: 'var(--border-subtle)',
@@ -63,54 +120,106 @@ export const SettingsModal: React.FC = () => {
         </div>
 
         <div className="flex flex-1 min-h-0">
-          {/* Tabs */}
-          <div className="w-44 p-2 border-r border-[var(--border-subtle)] space-y-1 text-xs shrink-0">
-            <button
-              type="button"
-              onClick={() => setTab('appearance')}
-              className={`w-full px-3 py-2 rounded-md flex items-center gap-2 ${
-                tab === 'appearance'
-                  ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-medium'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-              }`}
+          {/* Left Navigation: General (core + alwaysOn) & Plugins (optional) */}
+          <nav
+            aria-label="Settings Navigation"
+            className="w-48 p-2 border-r border-[var(--border-subtle)] flex flex-col gap-3 overflow-y-auto lighterm-scroll text-xs shrink-0"
+          >
+            <div
+              data-settings-section="general"
+              role="group"
+              aria-label="General Settings"
+              className="space-y-1"
             >
-              <Palette className="w-3.5 h-3.5" /> Appearance
-            </button>
+              <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                General
+              </div>
+              {renderNavButton(
+                'appearance',
+                'Appearance',
+                Palette,
+                () => shellService.setSettingsActiveTab('appearance'),
+                effectiveTab === 'appearance',
+              )}
+              {generalPluginPages.map((page) => {
+                const itemKey = `${page.pluginId}:${page.id}`;
+                return renderNavButton(
+                  itemKey,
+                  page.title,
+                  page.icon ?? Puzzle,
+                  () => shellService.setSettingsActiveTab(itemKey),
+                  effectiveTab === itemKey,
+                );
+              })}
+              {generalLegacyTabs.map((item) => {
+                const itemKey = `${item.pluginId}:${item.id}`;
+                return renderNavButton(
+                  itemKey,
+                  item.label ?? item.id,
+                  Puzzle,
+                  () => shellService.setSettingsActiveTab(itemKey),
+                  effectiveTab === itemKey,
+                );
+              })}
+              {renderNavButton(
+                'shortcuts',
+                'Shortcuts',
+                Keyboard,
+                () => shellService.setSettingsActiveTab('shortcuts'),
+                effectiveTab === 'shortcuts',
+              )}
+            </div>
 
-            {pluginSettingsTabs.map((item) => {
-              const itemKey = `${item.pluginId}:${item.id}`;
-              return (
-                <button
-                  key={itemKey}
-                  type="button"
-                  onClick={() => setTab(itemKey)}
-                  className={`w-full px-3 py-2 rounded-md flex items-center gap-2 ${
-                    tab === itemKey
-                      ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-medium'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-                  }`}
-                >
-                  <Puzzle className="w-3.5 h-3.5" /> {item.label ?? item.id}
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              onClick={() => setTab('shortcuts')}
-              className={`w-full px-3 py-2 rounded-md flex items-center gap-2 ${
-                tab === 'shortcuts'
-                  ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-medium'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-              }`}
+            <div
+              data-settings-section="plugins"
+              role="group"
+              aria-label="Plugin Settings"
+              className="border-t border-[var(--border-subtle)] pt-2.5 space-y-1"
             >
-              <Keyboard className="w-3.5 h-3.5" /> Shortcuts
-            </button>
-          </div>
+              <div className="px-2.5 py-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                <span className="flex items-center gap-1.5">
+                  <Puzzle className="w-3 h-3 text-[var(--accent)]" />
+                  <span>Plugins</span>
+                </span>
+                <span className="px-1.5 py-0 rounded bg-[var(--bg-elevated)] font-mono text-[9px]">
+                  {totalOptionalPluginPages}
+                </span>
+              </div>
+
+              {totalOptionalPluginPages === 0 ? (
+                <div className="px-2.5 py-1.5 text-[11px] text-[var(--text-muted)]">
+                  No plugin settings available
+                </div>
+              ) : (
+                <>
+                  {optionalPluginPages.map((page) => {
+                    const itemKey = `${page.pluginId}:${page.id}`;
+                    return renderNavButton(
+                      itemKey,
+                      page.title,
+                      page.icon ?? Puzzle,
+                      () => shellService.setSettingsActiveTab(itemKey),
+                      effectiveTab === itemKey,
+                    );
+                  })}
+                  {optionalLegacyTabs.map((item) => {
+                    const itemKey = `${item.pluginId}:${item.id}`;
+                    return renderNavButton(
+                      itemKey,
+                      item.label ?? item.id,
+                      Puzzle,
+                      () => shellService.setSettingsActiveTab(itemKey),
+                      effectiveTab === itemKey,
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </nav>
 
           {/* Content */}
           <div className="flex-1 p-4 overflow-y-auto lighterm-scroll text-xs space-y-5">
-            {tab === 'appearance' && (
+            {effectiveTab === 'appearance' && (
               <>
                 <div>
                   <h3 className="font-semibold text-[var(--text-primary)] mb-2">Color Theme</h3>
@@ -178,9 +287,35 @@ export const SettingsModal: React.FC = () => {
               </>
             )}
 
-            {activePluginTab && activePluginTab.render()}
+            {activePage && ActivePageComponent && (
+              <div className="space-y-4">
+                <div
+                  data-plugin-settings-header={activePage.pluginId}
+                  className="pb-3 border-b border-[var(--border-subtle)]"
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ActivePageIcon className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                      {activePage.title}
+                    </h3>
+                    <code className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--bg-elevated)] text-[var(--text-muted)]">
+                      {activePage.pluginId}
+                    </code>
+                  </div>
+                  {activePage.description && (
+                    <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                      {activePage.description}
+                    </p>
+                  )}
+                </div>
 
-            {tab === 'shortcuts' && (
+                <ActivePageComponent pluginId={activePage.pluginId} />
+              </div>
+            )}
+
+            {activeLegacyTab && activeLegacyTab.render()}
+
+            {effectiveTab === 'shortcuts' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[var(--text-muted)]">

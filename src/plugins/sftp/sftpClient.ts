@@ -1,6 +1,17 @@
 import { create } from 'zustand';
 import { invokeTauri, isTauriRuntime, listenTauri, makeUuid } from '../../core/ipc';
+import { harnessKernel } from '../../harness/HarnessKernel';
 import type { SftpEntry, SftpTransferProgress } from '../../types';
+
+export interface SftpPluginConfig extends Record<string, unknown> {
+  showHiddenByDefault: boolean;
+  defaultRemotePath: string;
+}
+
+export const DEFAULT_SFTP_CONFIG: SftpPluginConfig = {
+  showHiddenByDefault: false,
+  defaultRemotePath: '.',
+};
 
 interface MockFsNode {
   name: string;
@@ -148,10 +159,14 @@ export const sftpClient = {
       .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
   },
 
-  async openForHost(hostId: string, initialPath = '.'): Promise<void> {
+  async openForHost(hostId: string, initialPath?: string): Promise<void> {
+    const targetPath =
+      initialPath ??
+      (harnessKernel.getPluginConfig('lighterm.sftp', DEFAULT_SFTP_CONFIG).defaultRemotePath ||
+        '.');
     useSftpPluginStore.setState({ hostId, loading: true, error: null });
     try {
-      const canonical = await this.canonicalize(hostId, initialPath);
+      const canonical = await this.canonicalize(hostId, targetPath);
       const entries = await this.listDir(hostId, canonical);
       useSftpPluginStore.setState({ path: canonical, entries, loading: false });
     } catch (err) {
@@ -173,6 +188,10 @@ export const sftpClient = {
     const { hostId, path } = useSftpPluginStore.getState();
     if (!hostId) return;
     await this.openForHost(hostId, path);
+  },
+
+  setShowHidden(showHidden: boolean): void {
+    useSftpPluginStore.setState({ showHidden });
   },
 
   toggleHidden(): void {

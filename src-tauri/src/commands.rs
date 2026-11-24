@@ -407,9 +407,7 @@ pub async fn hosts_save(state: State<'_, AppState>, host: HostConfig) -> CoreRes
     let core = Arc::clone(&state.core);
     run_blocking(CoreError::StorageError, move || {
         core.ssh_pool.invalidate(&host.id);
-        if let Ok(sftp) = core.plugins.get_active::<SftpPlugin>("lighterm.sftp") {
-            sftp.invalidate(&host.id);
-        }
+        core.plugins.notify_host_invalidated(&host.id);
         core.storage.save_host(host)
     })
     .await
@@ -420,9 +418,7 @@ pub async fn hosts_delete(state: State<'_, AppState>, id: String) -> CoreResult<
     let core = Arc::clone(&state.core);
     run_blocking(CoreError::StorageError, move || {
         core.ssh_pool.invalidate(&id);
-        if let Ok(sftp) = core.plugins.get_active::<SftpPlugin>("lighterm.sftp") {
-            sftp.invalidate(&id);
-        }
+        core.plugins.notify_host_invalidated(&id);
         core.storage.delete_host(&id)
     })
     .await
@@ -511,6 +507,54 @@ pub async fn plugins_set_enabled(
     run_blocking(CoreError::PluginError, move || {
         let ctx = core.context();
         core.plugins.set_enabled(&id, enabled, &ctx)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn plugin_configs_get_all(
+    state: State<'_, AppState>,
+) -> CoreResult<std::collections::HashMap<String, serde_json::Value>> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.get_all_plugin_configs()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn plugin_config_get(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> CoreResult<serde_json::Value> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.get_plugin_config(&plugin_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn plugin_config_save(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    config: serde_json::Value,
+) -> CoreResult<serde_json::Value> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.save_plugin_config(&plugin_id, config)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn plugin_config_reset(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> CoreResult<()> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.reset_plugin_config(&plugin_id)
     })
     .await
 }

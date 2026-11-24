@@ -4,6 +4,16 @@ import type { Snippet } from '../../types';
 
 const LS_SNIPPETS = 'lighterm:snippets';
 
+export interface SnippetsPluginConfig extends Record<string, unknown> {
+  defaultCategory: string;
+  defaultAutoExecute: boolean;
+}
+
+export const DEFAULT_SNIPPETS_CONFIG: SnippetsPluginConfig = {
+  defaultCategory: 'General',
+  defaultAutoExecute: true,
+};
+
 function createStarterSnippets(): Snippet[] {
   const now = Date.now();
   return [

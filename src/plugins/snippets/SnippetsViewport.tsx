@@ -1,9 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CornerDownLeft, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react';
 import { shellService } from '../../core/shellService';
+import { usePluginConfig } from '../../harness';
 import type { ViewportComponentProps } from '../../harness/types';
 import type { Snippet } from '../../types';
-import { snippetsClient, useSnippetsPluginStore } from './snippetsClient';
+import {
+  DEFAULT_SNIPPETS_CONFIG,
+  snippetsClient,
+  useSnippetsPluginStore,
+} from './snippetsClient';
 
 const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
 
@@ -17,6 +22,10 @@ function extractPlaceholders(command: string): string[] {
 
 export const SnippetsViewport: React.FC<ViewportComponentProps> = () => {
   const snippets = useSnippetsPluginStore((s) => s.snippets);
+  const { config: snippetsConfig } = usePluginConfig(
+    'lighterm.snippets',
+    DEFAULT_SNIPPETS_CONFIG,
+  );
 
   useEffect(() => {
     void snippetsClient.load();
@@ -28,8 +37,8 @@ export const SnippetsViewport: React.FC<ViewportComponentProps> = () => {
 
   const [title, setTitle] = useState('');
   const [command, setCommand] = useState('');
-  const [category, setCategory] = useState('General');
-  const [autoExecute, setAutoExecute] = useState(true);
+  const [category, setCategory] = useState(snippetsConfig.defaultCategory);
+  const [autoExecute, setAutoExecute] = useState(snippetsConfig.defaultAutoExecute);
 
   const [pendingSnippet, setPendingSnippet] = useState<{
     snippet: Snippet;
@@ -60,8 +69,8 @@ export const SnippetsViewport: React.FC<ViewportComponentProps> = () => {
       setEditing(null);
       setTitle('');
       setCommand('');
-      setCategory('General');
-      setAutoExecute(true);
+      setCategory(snippetsConfig.defaultCategory || 'General');
+      setAutoExecute(Boolean(snippetsConfig.defaultAutoExecute));
     }
     setFormOpen(true);
   };

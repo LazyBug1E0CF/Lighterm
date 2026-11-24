@@ -157,13 +157,21 @@ pub struct ConnectionTestResult {
     pub message: String,
 }
 
+fn default_plugin_version() -> String {
+    "1.0.0".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_plugin_version")]
+    pub version: String,
     pub description: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub always_on: bool,
     pub dependencies: Vec<String>,
 }
 

@@ -41,6 +41,7 @@ export interface ShellStoreState {
   hostModalOpen: boolean;
   editingHost: HostConfig | null;
   settingsModalOpen: boolean;
+  settingsActiveTab: string;
   commandPaletteOpen: boolean;
   pluginManagerOpen: boolean;
   statusBannerError: string | null;
@@ -115,6 +116,7 @@ export const useShellStore = create<ShellStoreState>(() => ({
   hostModalOpen: false,
   editingHost: null,
   settingsModalOpen: false,
+  settingsActiveTab: 'appearance',
   commandPaletteOpen: false,
   pluginManagerOpen: false,
   statusBannerError: null,
@@ -863,6 +865,17 @@ export class ShellService {
     useShellStore.setState({ settingsModalOpen: open });
   }
 
+  setSettingsActiveTab(tabKey: string): void {
+    useShellStore.setState({ settingsActiveTab: tabKey });
+  }
+
+  openSettings(tabKey?: string): void {
+    useShellStore.setState((state) => ({
+      settingsModalOpen: true,
+      settingsActiveTab: tabKey ?? state.settingsActiveTab,
+    }));
+  }
+
   setCommandPaletteOpen(open: boolean): void {
     useShellStore.setState({ commandPaletteOpen: open });
   }
@@ -906,6 +919,7 @@ export class ShellService {
       hostModalOpen: false,
       editingHost: null,
       settingsModalOpen: false,
+      settingsActiveTab: 'appearance',
       commandPaletteOpen: false,
       pluginManagerOpen: false,
       statusBannerError: null,

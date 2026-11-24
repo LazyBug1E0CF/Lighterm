@@ -322,6 +322,168 @@ fn plugin_registry_dependency_and_cascading_lifecycle() {
     assert!(core.plugins.is_active("test.dependent"));
 }
 
+#[derive(Default)]
+struct InvalidIdPlugin;
+
+impl CorePlugin for InvalidIdPlugin {
+    fn id(&self) -> &'static str {
+        "invalid_single_segment"
+    }
+
+    fn name(&self) -> &'static str {
+        "Invalid"
+    }
+
+    fn description(&self) -> &'static str {
+        "Should fail ID validation"
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+        self
+    }
+}
+
+#[derive(Default)]
+struct HostListenerPlugin {
+    invalidated_hosts: Mutex<Vec<String>>,
+}
+
+impl CorePlugin for HostListenerPlugin {
+    fn id(&self) -> &'static str {
+        "test.host-listener"
+    }
+
+    fn name(&self) -> &'static str {
+        "Host Listener"
+    }
+
+    fn version(&self) -> &'static str {
+        "2.3.4"
+    }
+
+    fn description(&self) -> &'static str {
+        "Tracks host invalidation callbacks"
+    }
+
+    fn on_host_invalidated(&self, host_id: &str) {
+        self.invalidated_hosts.lock().push(host_id.to_string());
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+        self
+    }
+}
+
+#[derive(Default)]
+struct AlwaysOnTestPlugin;
+
+impl CorePlugin for AlwaysOnTestPlugin {
+    fn id(&self) -> &'static str {
+        "test.always-on"
+    }
+
+    fn name(&self) -> &'static str {
+        "Always On Test"
+    }
+
+    fn description(&self) -> &'static str {
+        "Cannot be disabled via storage or set_enabled"
+    }
+
+    fn always_on(&self) -> bool {
+        true
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn std::any::Any + Send + Sync> {
+        self
+    }
+}
+
+#[test]
+fn plugin_contract_validation_version_host_hook_and_config_storage() {
+    let dir = tempdir().unwrap();
+    let core = LightermCore::with_data_dir(dir.path().to_path_buf()).unwrap();
+    let ctx = core.context();
+
+    // 1. Invalid plugin ID is rejected
+    let invalid = Arc::new(InvalidIdPlugin);
+    assert!(core.register_plugin(invalid).is_err());
+
+    // 2. Valid plugin exposes version in PluginInfo and receives host invalidation hooks only when active
+    let listener = Arc::new(HostListenerPlugin::default());
+    core.register_plugin(listener.clone()).unwrap();
+
+    let list = core.plugins.list();
+    let info = list.iter().find(|p| p.id == "test.host-listener").unwrap();
+    assert_eq!(info.version, "2.3.4");
+    assert!(info.enabled);
+
+    core.plugins.notify_host_invalidated("host-1");
+    assert_eq!(*listener.invalidated_hosts.lock(), vec!["host-1".to_string()]);
+
+    core.plugins
+        .set_enabled("test.host-listener", false, &ctx)
+        .unwrap();
+    core.plugins.notify_host_invalidated("host-2");
+    assert_eq!(*listener.invalidated_hosts.lock(), vec!["host-1".to_string()]);
+
+    // 3. Plugin config storage validation, roundtrip, and reset
+    assert!(core.storage.get_plugin_config("bad_id").is_err());
+    assert!(core
+        .storage
+        .save_plugin_config("test.host-listener", serde_json::json!(["not-object"]))
+        .is_err());
+    assert_eq!(
+        core.storage.get_plugin_config("test.host-listener").unwrap(),
+        serde_json::json!({})
+    );
+
+    core.storage
+        .save_plugin_config(
+            "test.host-listener",
+            serde_json::json!({ "pollIntervalMs": 5000, "enabled": true }),
+        )
+        .unwrap();
+
+    let all = core.storage.get_all_plugin_configs().unwrap();
+    assert_eq!(
+        all.get("test.host-listener"),
+        Some(&serde_json::json!({ "pollIntervalMs": 5000, "enabled": true }))
+    );
+    assert_eq!(
+        core.storage.get_plugin_config("test.host-listener").unwrap(),
+        serde_json::json!({ "pollIntervalMs": 5000, "enabled": true })
+    );
+
+    core.storage.reset_plugin_config("test.host-listener").unwrap();
+    assert_eq!(
+        core.storage.get_plugin_config("test.host-listener").unwrap(),
+        serde_json::json!({})
+    );
+    assert!(core.storage.get_all_plugin_configs().unwrap().is_empty());
+
+    // 4. always_on plugins stay active despite persisted false or set_enabled(false)
+    let mut persisted = HashMap::new();
+    persisted.insert("test.always-on".to_string(), false);
+    core.storage.save_plugin_states(&persisted).unwrap();
+
+    let always = Arc::new(AlwaysOnTestPlugin);
+    core.register_plugin(always).unwrap();
+    assert!(core.plugins.is_active("test.always-on"));
+    core.plugins
+        .set_enabled("test.always-on", false, &ctx)
+        .unwrap();
+    assert!(core.plugins.is_active("test.always-on"));
+    let always_info = core
+        .plugins
+        .list()
+        .into_iter()
+        .find(|p| p.id == "test.always-on")
+        .unwrap();
+    assert!(always_info.always_on);
+    assert!(always_info.enabled);
+}
+
 #[derive(Clone)]
 struct TestSshServer {
     expected_user: String,

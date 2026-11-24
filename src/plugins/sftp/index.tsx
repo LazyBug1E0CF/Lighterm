@@ -1,24 +1,37 @@
 import { FolderOpen } from 'lucide-react';
 import { type ShellService, useShellStore } from '../../core/shellService';
-import type { PluginDefinition } from '../../harness/types';
+import { definePlugin } from '../../harness';
 import type { LayoutService } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
-import { sftpClient, subscribeSftpProgressEvents, useSftpPluginStore } from './sftpClient';
+import {
+  DEFAULT_SFTP_CONFIG,
+  sftpClient,
+  subscribeSftpProgressEvents,
+  useSftpPluginStore,
+  type SftpPluginConfig,
+} from './sftpClient';
+import { SftpSettingsPage } from './SftpSettingsPage';
 import { SftpViewport } from './SftpViewport';
 
+export { DEFAULT_SFTP_CONFIG, type SftpPluginConfig };
 export const SFTP_VIEWPORT_TYPE = 'sftp.browser';
 
-export const sftpPlugin: PluginDefinition = {
+export const sftpPlugin = definePlugin({
   id: 'lighterm.sftp',
   name: 'SFTP File Browser',
   version: '1.0.0',
   description: 'Remote SFTP file browser viewport with upload/download and progress telemetry',
+  icon: FolderOpen,
+  author: 'Lighterm',
   inject: ['core:shell', 'core:layout'],
   defaultEnabled: true,
 
   activate(ctx) {
     const shell = ctx.inject<ShellService>('core:shell');
     const layout = ctx.inject<LayoutService>('core:layout');
+
+    const initialCfg = ctx.getConfig(DEFAULT_SFTP_CONFIG);
+    sftpClient.setShowHidden(Boolean(initialCfg.showHiddenByDefault));
 
     let disposed = false;
     let unlistenProgress: (() => void) | null = null;
@@ -40,36 +53,34 @@ export const sftpPlugin: PluginDefinition = {
       typeId: SFTP_VIEWPORT_TYPE,
       title: 'SFTP Browser',
       icon: FolderOpen,
-      defaultDock: 'bottom',
+      defaultPosition: 'bottom',
+      defaultDockRatio: 0.68,
       defaultFloatSize: { width: 700, height: 340 },
       singleton: true,
+      openOnStartup: false,
+      order: 20,
       component: SftpViewport,
     });
 
+    ctx.registerSettingsPage({
+      id: 'sftp',
+      title: 'SFTP Browser',
+      description: 'Configure default hidden file visibility and remote starting directory.',
+      icon: FolderOpen,
+      order: 30,
+      component: SftpSettingsPage,
+    });
+
     const openForHost = (hostId: string, defaultPath?: string | null) => {
-      const existing = layout.findViewportsByType(SFTP_VIEWPORT_TYPE)[0];
-      if (!existing) {
-        layout.openViewport({
-          typeId: SFTP_VIEWPORT_TYPE,
-          pluginId: ctx.pluginId,
-          title: 'SFTP Browser',
-          preferredDock: 'bottom',
-        });
-      } else {
-        layout.setActiveViewport(existing.id);
-      }
-      void sftpClient.openForHost(hostId, defaultPath ?? '.');
+      const cfg = ctx.getConfig(DEFAULT_SFTP_CONFIG);
+      layout.openPluginViewport(SFTP_VIEWPORT_TYPE);
+      void sftpClient.openForHost(hostId, defaultPath || cfg.defaultRemotePath || '.');
     };
 
     const toggle = () => {
       const existing = layout.findViewportsByType(SFTP_VIEWPORT_TYPE)[0];
       if (existing) {
-        layout.toggleSingletonViewport({
-          typeId: SFTP_VIEWPORT_TYPE,
-          pluginId: ctx.pluginId,
-          title: 'SFTP Browser',
-          preferredDock: 'bottom',
-        });
+        layout.toggleSingletonViewport({ typeId: SFTP_VIEWPORT_TYPE });
         return;
       }
 
@@ -81,15 +92,11 @@ export const sftpPlugin: PluginDefinition = {
           : null;
       const targetHostId = activeHostId ?? useSftpPluginStore.getState().hostId ?? hosts[0]?.id;
 
-      layout.openViewport({
-        typeId: SFTP_VIEWPORT_TYPE,
-        pluginId: ctx.pluginId,
-        title: 'SFTP Browser',
-        preferredDock: 'bottom',
-      });
+      layout.openPluginViewport(SFTP_VIEWPORT_TYPE);
       if (targetHostId) {
         const host = hosts.find((h) => h.id === targetHostId);
-        void sftpClient.openForHost(targetHostId, host?.defaultPath ?? '.');
+        const cfg = ctx.getConfig(DEFAULT_SFTP_CONFIG);
+        void sftpClient.openForHost(targetHostId, host?.defaultPath || cfg.defaultRemotePath || '.');
       }
     };
 
@@ -143,4 +150,4 @@ export const sftpPlugin: PluginDefinition = {
     window.addEventListener('keydown', onKeyDown);
     ctx.onCleanup(() => window.removeEventListener('keydown', onKeyDown));
   },
-};
+});
