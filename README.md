@@ -46,6 +46,9 @@ pnpm run build
 # Run Tauri desktop app in dev mode / build desktop bundle
 pnpm tauri dev
 pnpm tauri build
+
+# Build custom Obsidian Spotlight Windows installer (Windows x64)
+pnpm run build:installer
 ```
 
 ### Linux (Debian / Ubuntu / Deepin 25) System Dependencies for Tauri

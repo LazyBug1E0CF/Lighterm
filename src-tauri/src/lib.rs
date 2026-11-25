@@ -53,10 +53,52 @@ fn install_linux_gtk_log_filter() {
     });
 }
 
+fn resolve_cli_startup_cwd() -> Option<std::path::PathBuf> {
+    let mut args = std::env::args().skip(1);
+    let mut candidate: Option<String> = None;
+
+    while let Some(arg) = args.next() {
+        if arg == "--cwd" {
+            if let Some(val) = args.next() {
+                candidate = Some(val);
+                break;
+            }
+        } else if let Some(val) = arg.strip_prefix("--cwd=") {
+            candidate = Some(val.to_string());
+            break;
+        } else if !arg.starts_with('-') {
+            candidate = Some(arg);
+            break;
+        }
+    }
+
+    let raw = candidate?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut path = std::path::PathBuf::from(trimmed);
+    if path.is_relative() {
+        if let Ok(cwd) = std::env::current_dir() {
+            path = cwd.join(path);
+        }
+    }
+    if path.exists() && path.is_dir() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
     install_linux_gtk_log_filter();
+
+    if let Some(startup_cwd) = resolve_cli_startup_cwd() {
+        lighterm_core::pty::set_startup_cwd(startup_cwd);
+    }
 
     let core = Arc::new(LightermCore::default_instance().expect("Failed to initialize Lighterm core"));
     core.register_plugin(Arc::new(SftpPlugin::new()))

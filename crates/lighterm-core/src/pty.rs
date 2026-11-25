@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -11,6 +11,19 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use crate::error::{CoreError, CoreResult};
 use crate::events::CoreEventSink;
 use crate::models::SessionStatus;
+
+static STARTUP_CWD: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+
+/// Stores an initial working directory requested from CLI arguments (e.g. context menu).
+pub fn set_startup_cwd(path: PathBuf) {
+    let lock = STARTUP_CWD.get_or_init(|| Mutex::new(None));
+    *lock.lock() = Some(path);
+}
+
+/// Consumes the one-shot startup working directory so only the initial local terminal uses it.
+pub fn take_startup_cwd() -> Option<PathBuf> {
+    STARTUP_CWD.get().and_then(|lock| lock.lock().take())
+}
 
 pub struct LocalPtyHandle {
     writer: Mutex<Box<dyn Write + Send>>,
@@ -74,11 +87,21 @@ pub fn spawn_local_pty(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    if let Some(dir) = cwd {
-        let path = PathBuf::from(&dir);
+    let explicit_cwd = cwd.and_then(|d| {
+        let trimmed = d.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(trimmed))
+        }
+    });
+
+    if let Some(path) = explicit_cwd {
         if path.exists() && path.is_dir() {
             cmd.cwd(path);
         }
+    } else if let Some(startup) = take_startup_cwd().filter(|p| p.exists() && p.is_dir()) {
+        cmd.cwd(startup);
     } else if let Some(home) = dirs::home_dir() {
         cmd.cwd(home);
     }
@@ -175,5 +198,18 @@ impl LocalPtyHandle {
         }
         let _ = self.killer.lock().kill();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_cwd_is_consumed_once() {
+        let sample = std::env::temp_dir();
+        set_startup_cwd(sample.clone());
+        assert_eq!(take_startup_cwd(), Some(sample));
+        assert_eq!(take_startup_cwd(), None);
     }
 }

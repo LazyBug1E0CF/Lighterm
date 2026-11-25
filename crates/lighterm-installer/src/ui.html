@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lighterm Setup</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+
+    body {
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #installer-win {
+      --mx: 50%;
+      --my: 50%;
+      width: 620px;
+      height: 344px;
+      border-radius: 16px;
+      position: relative;
+      overflow: hidden;
+      background: rgba(9, 10, 15, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      box-shadow:
+        0 14px 36px rgba(0, 0, 0, 0.84),
+        0 0 28px rgba(122, 162, 247, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+    }
+
+    #bg-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .obsidian-godray {
+      position: absolute;
+      top: -36px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 360px;
+      height: 250px;
+      background: conic-gradient(
+        from 164deg at 50% 0%,
+        transparent 0deg,
+        rgba(122, 162, 247, 0.22) 14deg,
+        rgba(224, 242, 254, 0.26) 16deg,
+        rgba(122, 162, 247, 0.2) 18deg,
+        transparent 32deg
+      );
+      filter: blur(12px);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .cursor-spotlight {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+      background: radial-gradient(
+        200px circle at var(--mx) var(--my),
+        rgba(255, 255, 255, 0.13),
+        rgba(122, 162, 247, 0.09) 42%,
+        transparent 70%
+      );
+    }
+
+    #win-content {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px 4px;
+      flex-shrink: 0;
+      cursor: default;
+    }
+
+    .brand-tag {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: #8f96ad;
+      pointer-events: none;
+    }
+
+    .win-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .win-btn {
+      width: 26px;
+      height: 26px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: #94a3b8;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .win-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+    }
+
+    .win-btn.close:hover {
+      background: rgba(244, 63, 94, 0.85);
+      color: #ffffff;
+    }
+
+    .win-btn:disabled {
+      opacity: 0.32;
+      cursor: not-allowed;
+    }
+
+    .center-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 0 32px 18px;
+      gap: 14px;
+    }
+
+    .options-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4px 28px 20px;
+    }
+
+    .logo-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    @keyframes floatLogo {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-3px); }
+    }
+
+    .float-logo {
+      animation: floatLogo 3.6s ease-in-out infinite;
+    }
+
+    .logo-halo {
+      position: absolute;
+      inset: -12px;
+      border-radius: 24px;
+      filter: blur(18px);
+      opacity: 0.65;
+      background: radial-gradient(circle, rgba(122, 162, 247, 0.52), transparent 70%);
+      pointer-events: none;
+    }
+
+    .logo-halo.done {
+      background: radial-gradient(circle, rgba(158, 206, 106, 0.5), transparent 70%);
+    }
+
+    .title-lg {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+    }
+
+    .title-md {
+      font-size: 16px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .title-sm {
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+      text-align: center;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: #8f96ad;
+      max-width: 400px;
+      line-height: 1.5;
+    }
+
+    .cta-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding-top: 2px;
+    }
+
+    .btn-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .pill-primary {
+      position: relative;
+      overflow: hidden;
+      border: none;
+      border-radius: 9999px;
+      padding: 8px 28px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #090a0f;
+      background: linear-gradient(180deg, #ffffff, #cbd5e1);
+      box-shadow: 0 0 26px rgba(255, 255, 255, 0.26), 0 0 40px rgba(122, 162, 247, 0.3);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+
+    .pill-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 32px rgba(255, 255, 255, 0.36), 0 0 46px rgba(122, 162, 247, 0.42);
+    }
+
+    .pill-primary:active {
+      transform: translateY(0px);
+    }
+
+    .pill-primary::after {
+      content: "";
+      position: absolute;
+      top: -30%;
+      left: -60%;
+      width: 45%;
+      height: 160%;
+      background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.5) 50%, transparent 80%);
+      transform: translateX(-100%);
+      transition: transform 0.55s ease;
+      pointer-events: none;
+    }
+
+    .pill-primary:hover::after {
+      transform: translateX(340%);
+    }
+
+    .pill-secondary {
+      border-radius: 9999px;
+      padding: 7px 18px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #cbd5e1;
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      cursor: pointer;
+      transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+    }
+
+    .pill-secondary:hover {
+      border-color: rgba(255, 255, 255, 0.38);
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .pill-danger {
+      position: relative;
+      overflow: hidden;
+      border: none;
+      border-radius: 9999px;
+      padding: 8px 26px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #ffffff;
+      background: linear-gradient(135deg, #e11d48, #f43f5e);
+      box-shadow: 0 0 24px rgba(244, 63, 94, 0.35);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+
+    .pill-danger:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 30px rgba(244, 63, 94, 0.5);
+    }
+
+    .link-btn {
+      background: none;
+      border: none;
+      color: #8f96ad;
+      font-size: 12px;
+      text-decoration: underline;
+      text-underline-offset: 4px;
+      cursor: pointer;
+      transition: color 0.15s ease;
+    }
+
+    .link-btn:hover {
+      color: #ffffff;
+    }
+
+    .lit-card {
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .lit-card:hover {
+      border-color: rgba(255, 255, 255, 0.34);
+      box-shadow: 0 0 18px rgba(122, 162, 247, 0.18);
+    }
+
+    .path-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 12px;
+    }
+
+    .path-text {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 12px;
+      color: #e2e8f0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      text-align: left;
+    }
+
+    .browse-btn {
+      border: none;
+      border-radius: 9999px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.11);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s ease;
+    }
+
+    .browse-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .opt-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      text-align: left;
+      color: #e2e8f0;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .opt-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chk-box {
+      width: 15px;
+      height: 15px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .chk-box.off {
+      border: 1px solid rgba(226, 232, 240, 0.42);
+    }
+
+    .chk-box.on {
+      background: #e2e8f0;
+      color: #090a0f;
+      box-shadow: 0 0 10px rgba(226, 232, 240, 0.55);
+    }
+
+    .disk-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #8f96ad;
+      padding: 2px 2px 0;
+    }
+
+    .ring-wrap {
+      position: relative;
+      width: 112px;
+      height: 112px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .floor-glow {
+      position: absolute;
+      bottom: -10px;
+      width: 96px;
+      height: 16px;
+      border-radius: 9999px;
+      filter: blur(8px);
+      background: radial-gradient(ellipse, rgba(125, 207, 255, 0.48), transparent 70%);
+      pointer-events: none;
+    }
+
+    .ring-svg {
+      width: 112px;
+      height: 112px;
+      transform: rotate(-90deg);
+    }
+
+    .ring-logo {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pct-readout {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .error-banner {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(244, 63, 94, 0.45);
+      background: rgba(244, 63, 94, 0.14);
+      color: #fda4af;
+      font-size: 12px;
+      max-width: 480px;
+      word-break: break-word;
+    }
+
+    .single-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      color: #e2e8f0;
+      font-size: 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="installer-win">
+    <canvas id="bg-canvas"></canvas>
+    <div class="obsidian-godray"></div>
+    <div class="cursor-spotlight"></div>
+    <div id="win-content"></div>
+  </div>
+
+  <script>
+    (function () {
+      const state = {
+        mode: 'setup',
+        step: 'welcome',
+        version: '0.1.0',
+        installDir: 'C:\\Users\\Public\\Programs\\Lighterm',
+        desktopShortcut: true,
+        startMenuShortcut: true,
+        addToPath: false,
+        contextMenu: false,
+        purgeUserData: false,
+        requiredMb: 0,
+        freeGb: 0,
+        progress: 0,
+        statusText: '准备就绪',
+        errorMessage: null,
+        busy: false,
+      };
+
+      const winEl = document.getElementById('installer-win');
+      const contentEl = document.getElementById('win-content');
+      const canvas = document.getElementById('bg-canvas');
+      const ctx = canvas.getContext('2d');
+      let readyNotified = false;
+
+      function sendIpc(payload) {
+        if (window.ipc && typeof window.ipc.postMessage === 'function') {
+          window.ipc.postMessage(JSON.stringify(payload));
+        }
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function logoSvg(size) {
+        const s = size || 60;
+        return `
+          <svg width="${s}" height="${s}" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="lt-bg" x1="14" y1="12" x2="114" y2="116" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#121629"/>
+                <stop offset="100%" stop-color="#1c1430"/>
+              </linearGradient>
+              <linearGradient id="lt-border" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#5a76cf"/>
+                <stop offset="50%" stop-color="#415395"/>
+                <stop offset="100%" stop-color="#73ccff" stop-opacity="0.85"/>
+              </linearGradient>
+            </defs>
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#lt-bg)" stroke="url(#lt-border)" stroke-width="6"/>
+            <path d="M36 44L56 64L36 84" stroke="#73ccff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="66" y="78" width="28" height="10" rx="3" fill="#73ccff"/>
+          </svg>
+        `;
+      }
+
+      function checkBoxHtml(checked) {
+        if (!checked) {
+          return '<span class="chk-box off"></span>';
+        }
+        return `
+          <span class="chk-box on">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+              <path d="M2.5 6.2L5 8.6L9.5 3.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        `;
+      }
+
+      function headerHtml() {
+        const disableClose = state.busy ? 'disabled' : '';
+        return `
+          <div class="header-bar" data-drag-region="true">
+            <span class="brand-tag">LIGHTERM · v${escapeHtml(state.version)}</span>
+            <div class="win-controls">
+              <button type="button" class="win-btn" data-action="minimize" title="最小化">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" class="win-btn close" data-action="close" title="关闭" ${disableClose}>
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderRingProgress() {
+        const pct = Math.max(0, Math.min(100, Math.round(state.progress)));
+        const r = 44;
+        const circ = 2 * Math.PI * r;
+        const offset = circ * (1 - pct / 100);
+        return `
+          ${headerHtml()}
+          <div class="center-stage">
+            <div class="ring-wrap">
+              <div class="floor-glow"></div>
+              <svg class="ring-svg" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="${r}" stroke="rgba(255,255,255,0.1)" stroke-width="3.5" fill="none"/>
+                <circle cx="50" cy="50" r="${r}" stroke="url(#obs-ring)" stroke-width="4" stroke-linecap="round" fill="none"
+                  stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"
+                  style="filter: drop-shadow(0 0 8px rgba(125,207,255,0.9));"/>
+                <defs>
+                  <linearGradient id="obs-ring" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#ffffff"/>
+                    <stop offset="50%" stop-color="#7dcfff"/>
+                    <stop offset="100%" stop-color="#7aa2f7"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div class="ring-logo">${logoSvg(46)}</div>
+            </div>
+            <div>
+              <div class="pct-readout">${pct}%</div>
+              <div class="subtitle" style="margin-top:4px;">${escapeHtml(state.statusText)}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function render() {
+        if (state.mode === 'uninstall') {
+          if (state.step === 'confirm') {
+            contentEl.innerHTML = `
+              ${headerHtml()}
+              <div class="center-stage">
+                <div class="logo-wrap float-logo">
+                  <div class="logo-halo"></div>
+                  <div style="position:relative;">${logoSvg(56)}</div>
+                </div>
+                <div>
+                  <div class="title-md">卸载 Lighterm v${escapeHtml(state.version)}</div>
+                  <div class="subtitle" style="margin-top:4px;">将从 ${escapeHtml(state.installDir)} 移除程序文件与快捷方式</div>
+                </div>
+                ${state.errorMessage ? `<div class="error-banner">${escapeHtml(state.errorMessage)}</div>` : ''}
+                <button type="button" class="lit-card single-check" data-opt="purgeUserData">
+                  ${checkBoxHtml(state.purgeUserData)}
+                  <span>同时清理个人配置与主机数据</span>
+                </button>
+                <div class="btn-row">
+                  <button type="button" class="pill-secondary" data-action="close">取消</button>
+                  <button type="button" class="pill-danger" data-action="start-uninstall">确认卸载</button>
+                </div>
+              </div>
+            `;
+            return;
+          }
+
+          if (state.step === 'uninstalling') {
+            contentEl.innerHTML = renderRingProgress();
+            return;
+          }
+
+          contentEl.innerHTML = `
+            ${headerHtml()}
+            <div class="center-stage">
+              <div class="logo-wrap">
+                <div class="logo-halo done"></div>
+                <div style="position:relative;">${logoSvg(56)}</div>
+              </div>
+              <div>
+                <div class="title-md">Lighterm 已从您的电脑移除</div>
+                <div class="subtitle" style="margin-top:4px;">感谢您的使用，期待再次相遇。</div>
+              </div>
+              <div class="btn-row">
+                <button type="button" class="pill-primary" data-action="finish-uninstall">完成</button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        // Setup mode
+        if (state.step === 'welcome') {
+          contentEl.innerHTML = `
+            ${headerHtml()}
+            <div class="center-stage">
+              <div class="logo-wrap float-logo">
+                <div class="logo-halo"></div>
+                <div style="position:relative;">${logoSvg(62)}</div>
+              </div>
+              <div>
+                <div class="title-lg">Lighterm 桌面终端</div>
+                <div class="subtitle" style="margin-top:4px;">极简聚光舞台 · 轻量安全 SSH/SFTP 与多面板停靠工作台</div>
+              </div>
+              ${state.errorMessage ? `<div class="error-banner">${escapeHtml(state.errorMessage)}</div>` : ''}
+              <div class="cta-col">
+                <button type="button" class="pill-primary" data-action="start-install">立即安装 Lighterm</button>
+                <button type="button" class="link-btn" data-action="go-options">自定义安装选项与路径</button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (state.step === 'options') {
+          const items = [
+            { key: 'desktopShortcut', label: '创建桌面快捷方式' },
+            { key: 'startMenuShortcut', label: '创建开始菜单快捷方式' },
+            { key: 'addToPath', label: '添加到系统 PATH' },
+            { key: 'contextMenu', label: '右键菜单“在此处打开”' },
+          ];
+          const reqLabel = state.requiredMb > 0 ? `${state.requiredMb.toFixed(1)} MB` : '计算中';
+          const freeLabel = state.freeGb > 0 ? `${state.freeGb.toFixed(1)} GB` : '--';
+
+          contentEl.innerHTML = `
+            ${headerHtml()}
+            <div class="options-stage">
+              <div class="title-sm">自定义安装配置</div>
+              <div style="display:flex;flex-direction:column;gap:10px;margin:auto 0;">
+                <div class="lit-card path-row">
+                  <span class="path-text" title="${escapeHtml(state.installDir)}">${escapeHtml(state.installDir)}</span>
+                  <button type="button" class="browse-btn" data-action="browse-dir">浏览目录</button>
+                </div>
+                <div class="options-grid">
+                  ${items
+                    .map(
+                      (it) => `
+                    <button type="button" class="lit-card opt-btn" data-opt="${it.key}">
+                      ${checkBoxHtml(state[it.key])}
+                      <span class="opt-label">${it.label}</span>
+                    </button>
+                  `
+                    )
+                    .join('')}
+                </div>
+                <div class="disk-row">
+                  <span>预计占用空间: ${reqLabel}</span>
+                  <span>磁盘可用: ${freeLabel}</span>
+                </div>
+                ${state.errorMessage ? `<div class="error-banner">${escapeHtml(state.errorMessage)}</div>` : ''}
+              </div>
+              <div class="btn-row">
+                <button type="button" class="pill-secondary" data-action="go-welcome">返回</button>
+                <button type="button" class="pill-primary" data-action="start-install">开始安装</button>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        if (state.step === 'installing') {
+          contentEl.innerHTML = renderRingProgress();
+          return;
+        }
+
+        // Done
+        contentEl.innerHTML = `
+          ${headerHtml()}
+          <div class="center-stage">
+            <div class="logo-wrap">
+              <div class="logo-halo done"></div>
+              <div style="position:relative;">${logoSvg(56)}</div>
+            </div>
+            <div>
+              <div class="title-md">已准备好启程</div>
+              <div class="subtitle" style="margin-top:4px;">Lighterm 已安装在 ${escapeHtml(state.installDir)}</div>
+            </div>
+            ${state.errorMessage ? `<div class="error-banner">${escapeHtml(state.errorMessage)}</div>` : ''}
+            <div class="btn-row" style="padding-top:4px;">
+              <button type="button" class="pill-secondary" data-action="close">关闭</button>
+              <button type="button" class="pill-primary" data-action="launch-app">立即启动 Lighterm</button>
+            </div>
+          </div>
+        `;
+      }
+
+      // Host -> UI bridge
+      window.__INSTALLER__ = {
+        init(payload) {
+          state.mode = payload.mode || 'setup';
+          state.version = payload.version || '0.1.0';
+          state.installDir = payload.installDir || state.installDir;
+          state.desktopShortcut = Boolean(payload.desktopShortcut);
+          state.startMenuShortcut = Boolean(payload.startMenuShortcut);
+          state.addToPath = Boolean(payload.addToPath);
+          state.contextMenu = Boolean(payload.contextMenu);
+          state.requiredMb = Number(payload.requiredMb || 0);
+          state.freeGb = Number(payload.freeGb || 0);
+          state.step = state.mode === 'uninstall' ? 'confirm' : 'welcome';
+          state.errorMessage = null;
+          state.busy = false;
+          render();
+        },
+        setPathInfo(payload) {
+          if (payload.installDir) state.installDir = payload.installDir;
+          if (typeof payload.freeGb === 'number') state.freeGb = payload.freeGb;
+          render();
+        },
+        setProgress(payload) {
+          state.progress = Number(payload.progress || 0);
+          if (payload.statusText) state.statusText = payload.statusText;
+          render();
+        },
+        setComplete(payload) {
+          state.busy = false;
+          state.progress = 100;
+          if (payload && payload.installDir) state.installDir = payload.installDir;
+          state.step = 'done';
+          state.errorMessage = null;
+          render();
+        },
+        setError(payload) {
+          state.busy = false;
+          state.errorMessage = (payload && payload.message) || '操作失败';
+          state.step = state.mode === 'uninstall' ? 'confirm' : 'options';
+          render();
+        },
+      };
+
+      // Delegated events
+      contentEl.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const bar = e.target.closest('[data-drag-region="true"]');
+        if (bar && !e.target.closest('button')) {
+          sendIpc({ cmd: 'drag_window' });
+        }
+      });
+
+      contentEl.addEventListener('click', (e) => {
+        const optBtn = e.target.closest('[data-opt]');
+        if (optBtn) {
+          const key = optBtn.dataset.opt;
+          state[key] = !state[key];
+          render();
+          return;
+        }
+
+        const actBtn = e.target.closest('[data-action]');
+        if (!actBtn) return;
+        const action = actBtn.dataset.action;
+
+        if (action === 'minimize') {
+          sendIpc({ cmd: 'minimize' });
+        } else if (action === 'close') {
+          if (!state.busy) sendIpc({ cmd: 'close' });
+        } else if (action === 'go-options') {
+          state.errorMessage = null;
+          state.step = 'options';
+          render();
+        } else if (action === 'go-welcome') {
+          state.errorMessage = null;
+          state.step = 'welcome';
+          render();
+        } else if (action === 'browse-dir') {
+          sendIpc({ cmd: 'browse_dir', currentDir: state.installDir });
+        } else if (action === 'start-install') {
+          state.errorMessage = null;
+          state.busy = true;
+          state.step = 'installing';
+          state.progress = 0;
+          state.statusText = '正在初始化安装管线...';
+          render();
+          sendIpc({
+            cmd: 'start_install',
+            options: {
+              installDir: state.installDir,
+              desktopShortcut: state.desktopShortcut,
+              startMenuShortcut: state.startMenuShortcut,
+              addToPath: state.addToPath,
+              contextMenu: state.contextMenu,
+            },
+          });
+        } else if (action === 'launch-app') {
+          sendIpc({ cmd: 'launch_app', installDir: state.installDir });
+        } else if (action === 'start-uninstall') {
+          state.errorMessage = null;
+          state.busy = true;
+          state.step = 'uninstalling';
+          state.progress = 0;
+          state.statusText = '正在准备卸载...';
+          render();
+          sendIpc({
+            cmd: 'start_uninstall',
+            installDir: state.installDir,
+            purgeUserData: state.purgeUserData,
+          });
+        } else if (action === 'finish-uninstall') {
+          sendIpc({ cmd: 'finish_uninstall', installDir: state.installDir });
+        }
+      });
+
+      winEl.addEventListener('pointermove', (e) => {
+        const rect = winEl.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        winEl.style.setProperty('--mx', `${x.toFixed(1)}%`);
+        winEl.style.setProperty('--my', `${y.toFixed(1)}%`);
+      });
+
+      // Dust motes canvas inside overhead spotlight cone
+      const dustMotes = Array.from({ length: 28 }, (_, i) => ({
+        x: (i * 37) % 100,
+        y: (i * 53) % 100,
+        r: 0.9 + (i % 3) * 0.65,
+        speed: 0.012 + (i % 4) * 0.006,
+        phase: i * 0.7,
+      }));
+
+      function drawCanvas(timeMs) {
+        const w = winEl.clientWidth || 620;
+        const h = winEl.clientHeight || 344;
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
+        ctx.clearRect(0, 0, w, h);
+        const t = timeMs * 0.001;
+
+        dustMotes.forEach((m) => {
+          const mx = (m.x / 100) * w + Math.sin(t + m.phase) * 8;
+          const my = (((m.y - t * m.speed * 100) % 100) + 100) % 100 * (h / 100);
+          const distCenter = Math.abs(mx - w * 0.5) / (w * 0.35);
+          const alpha = Math.max(0, 0.48 * (1 - distCenter));
+          if (alpha > 0.03) {
+            ctx.beginPath();
+            ctx.arc(mx, my, m.r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(210, 232, 255, ${alpha.toFixed(3)})`;
+            ctx.fill();
+          }
+        });
+
+        if (!readyNotified) {
+          readyNotified = true;
+          sendIpc({ cmd: 'ui_ready' });
+        }
+
+        requestAnimationFrame(drawCanvas);
+      }
+
+      render();
+      requestAnimationFrame(drawCanvas);
+    })();
+  </script>
+</body>
+</html>
