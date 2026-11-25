@@ -93,6 +93,8 @@ export type ViewportRegistration = Omit<
     | { defaultDock: PreferredDockPosition; defaultPosition?: ViewportPosition }
   );
 
+export type SettingsMountTarget = 'appearance' | 'shortcuts' | `${string}:${string}` | (string & {});
+
 export interface PluginSettingsPageProps {
   pluginId: string;
 }
@@ -104,6 +106,8 @@ export interface PluginSettingsPageDescriptor {
   description?: string;
   icon?: PluginIconComponent;
   order?: number;
+  mountTo?: SettingsMountTarget;
+  defaultExpanded?: boolean;
   component: React.ComponentType<PluginSettingsPageProps>;
 }
 

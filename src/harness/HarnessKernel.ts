@@ -575,12 +575,20 @@ export class HarnessKernel {
           );
         }
         const key = `${pluginId}:${pageId}`;
+        const mountTo = page.mountTo?.trim() || undefined;
+        if (mountTo && (mountTo === key || mountTo === pluginId)) {
+          throw new Error(
+            `Plugin '${pluginId}' settings page '${pageId}' cannot mount to itself ('${mountTo}')`,
+          );
+        }
         const full: PluginSettingsPageDescriptor = {
           ...page,
           id: pageId,
           title,
           pluginId,
           icon: page.icon ?? entry.def.icon,
+          mountTo,
+          defaultExpanded: page.defaultExpanded ?? true,
         };
         this.settingsPages.set(key, full);
         const remove = () => {

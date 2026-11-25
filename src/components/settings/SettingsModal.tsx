@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Keyboard, Palette, Puzzle, RotateCcw, X } from 'lucide-react';
+import { ChevronDown, Keyboard, Palette, Puzzle, RotateCcw, X } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
 import {
   usePluginSettingsPages,
   usePluginStatuses,
   useSlotItems,
   type PluginIconComponent,
+  type PluginSettingsPageDescriptor,
 } from '../../harness';
 import { THEME_PRESETS } from '../../themes/presets';
 import type { ShortcutMap } from '../../types';
@@ -37,38 +38,152 @@ export const SettingsModal: React.FC = () => {
   const legacyPluginTabs = useSlotItems('settings:tabs');
 
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutMap | null>(null);
+  const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
 
   if (!open) return null;
 
   const alwaysOnPluginIds = new Set(
     pluginStatuses.filter((p) => p.alwaysOn).map((p) => p.id),
   );
-  const pageKeys = new Set(pluginPages.map((p) => `${p.pluginId}:${p.id}`));
+
+  const unmountedPages = pluginPages.filter((p) => !p.mountTo);
+  const baseStandaloneKeys = new Set(unmountedPages.map((p) => `${p.pluginId}:${p.id}`));
+  const standaloneByPluginId = new Map<string, string>();
+  for (const sp of unmountedPages) {
+    if (!standaloneByPluginId.has(sp.pluginId)) {
+      standaloneByPluginId.set(sp.pluginId, `${sp.pluginId}:${sp.id}`);
+    }
+  }
+
+  const resolveMountTarget = (rawMountTo?: string): string | null => {
+    const trimmed = rawMountTo?.trim();
+    if (!trimmed) return null;
+    if (trimmed === 'appearance' || trimmed === 'shortcuts' || baseStandaloneKeys.has(trimmed)) {
+      return trimmed;
+    }
+    if (!trimmed.includes(':') && standaloneByPluginId.has(trimmed)) {
+      return standaloneByPluginId.get(trimmed)!;
+    }
+    return null;
+  };
+
+  const standalonePluginPages: PluginSettingsPageDescriptor[] = [];
+  const mountedPanelsByTarget = new Map<string, PluginSettingsPageDescriptor[]>();
+  const mountedTargetByPageKey = new Map<string, string>();
+
+  for (const page of pluginPages) {
+    const target = resolveMountTarget(page.mountTo);
+    if (target) {
+      const list = mountedPanelsByTarget.get(target) ?? [];
+      list.push(page);
+      mountedPanelsByTarget.set(target, list);
+      mountedTargetByPageKey.set(`${page.pluginId}:${page.id}`, target);
+    } else {
+      standalonePluginPages.push(page);
+    }
+  }
+
+  const pageKeys = new Set(standalonePluginPages.map((p) => `${p.pluginId}:${p.id}`));
   const extraLegacyTabs = legacyPluginTabs.filter(
     (t) => !pageKeys.has(`${t.pluginId}:${t.id}`),
   );
 
-  const generalPluginPages = pluginPages.filter((p) => alwaysOnPluginIds.has(p.pluginId));
-  const optionalPluginPages = pluginPages.filter((p) => !alwaysOnPluginIds.has(p.pluginId));
+  const generalPluginPages = standalonePluginPages.filter((p) => alwaysOnPluginIds.has(p.pluginId));
+  const optionalPluginPages = standalonePluginPages.filter((p) => !alwaysOnPluginIds.has(p.pluginId));
   const generalLegacyTabs = extraLegacyTabs.filter((t) => alwaysOnPluginIds.has(t.pluginId));
   const optionalLegacyTabs = extraLegacyTabs.filter((t) => !alwaysOnPluginIds.has(t.pluginId));
   const totalOptionalPluginPages = optionalPluginPages.length + optionalLegacyTabs.length;
 
-  const activePage = pluginPages.find((p) => `${p.pluginId}:${p.id}` === settingsActiveTab);
+  const resolvedActiveTab = mountedTargetByPageKey.get(settingsActiveTab) ?? settingsActiveTab;
+
+  const activePage = standalonePluginPages.find(
+    (p) => `${p.pluginId}:${p.id}` === resolvedActiveTab,
+  );
   const activeLegacyTab = !activePage
-    ? extraLegacyTabs.find((t) => `${t.pluginId}:${t.id}` === settingsActiveTab)
+    ? extraLegacyTabs.find((t) => `${t.pluginId}:${t.id}` === resolvedActiveTab)
     : undefined;
 
   const effectiveTab =
-    settingsActiveTab === 'appearance' ||
-    settingsActiveTab === 'shortcuts' ||
+    resolvedActiveTab === 'appearance' ||
+    resolvedActiveTab === 'shortcuts' ||
     activePage ||
     activeLegacyTab
-      ? settingsActiveTab
+      ? resolvedActiveTab
       : 'appearance';
 
   const ActivePageComponent = activePage?.component;
   const ActivePageIcon = activePage?.icon ?? Puzzle;
+
+  const renderMountedPanels = (targetKey: string) => {
+    const panels = mountedPanelsByTarget.get(targetKey);
+    if (!panels || panels.length === 0) return null;
+
+    return (
+      <div data-mounted-settings-host={targetKey} className="pt-2 space-y-3">
+        {panels.map((panel) => {
+          const panelKey = `${panel.pluginId}:${panel.id}`;
+          const PanelIcon = panel.icon ?? Puzzle;
+          const PanelComponent = panel.component;
+          const isDirectDeepLink = settingsActiveTab === panelKey;
+          const isExpanded = isDirectDeepLink
+            ? true
+            : (expandedPanels[panelKey] ?? (panel.defaultExpanded ?? true));
+          const bodyId = `plugin-panel-body-${panelKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+
+          return (
+            <section
+              key={panelKey}
+              data-plugin-settings-panel={panel.pluginId}
+              data-plugin-settings-panel-key={panelKey}
+              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/35 overflow-hidden"
+            >
+              <button
+                type="button"
+                aria-expanded={isExpanded}
+                aria-controls={bodyId}
+                data-plugin-settings-header={panel.pluginId}
+                onClick={() => {
+                  const nextExpanded = !isExpanded;
+                  setExpandedPanels((prev) => ({ ...prev, [panelKey]: nextExpanded }));
+                  if (isDirectDeepLink) {
+                    shellService.setSettingsActiveTab(effectiveTab);
+                  }
+                }}
+                className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-[var(--bg-elevated)]/60 transition-colors"
+              >
+                <span className="flex items-center gap-2 min-w-0 flex-wrap">
+                  <PanelIcon className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                  <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                    {panel.title}
+                  </span>
+                  <code className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--bg-elevated)] text-[var(--text-muted)]">
+                    {panel.pluginId}
+                  </code>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-[var(--text-muted)] shrink-0 transition-transform ${
+                    isExpanded ? '' : '-rotate-90'
+                  }`}
+                />
+              </button>
+
+              {isExpanded && (
+                <div
+                  id={bodyId}
+                  className="px-3.5 pb-3.5 pt-3 border-t border-[var(--border-subtle)] space-y-3"
+                >
+                  {panel.description && (
+                    <p className="text-[11px] text-[var(--text-muted)]">{panel.description}</p>
+                  )}
+                  <PanelComponent pluginId={panel.pluginId} />
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    );
+  };
 
   const renderNavButton = (
     key: string,
@@ -284,6 +399,7 @@ export const SettingsModal: React.FC = () => {
                     className="w-full accent-[var(--accent)]"
                   />
                 </div>
+                {renderMountedPanels('appearance')}
               </>
             )}
 
@@ -310,6 +426,7 @@ export const SettingsModal: React.FC = () => {
                 </div>
 
                 <ActivePageComponent pluginId={activePage.pluginId} />
+                {renderMountedPanels(`${activePage.pluginId}:${activePage.id}`)}
               </div>
             )}
 
@@ -372,6 +489,7 @@ export const SettingsModal: React.FC = () => {
                     );
                   })}
                 </div>
+                {renderMountedPanels('shortcuts')}
               </div>
             )}
           </div>

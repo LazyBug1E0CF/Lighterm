@@ -164,16 +164,24 @@ ctx.registerViewport({
 
 ## 5. Settings 插件配置页与配置持久化规范
 
-### 5.1 Settings 左侧导航分区结构
-`SettingsModal` 左侧导航栏固定划分为两个语义区块：
-1. **General 区块**（`aria-label="General Settings"`）：展示核心通用设置（`Appearance`、`Shortcuts`）以及 **`alwaysOn: true` 核心常驻插件**注册的配置页（如 `lighterm.terminal`、`lighterm.history`）。
-2. **Plugins 区块**（`aria-label="Plugin Settings"`）：集中展示所有**已激活的非 `alwaysOn` 可选插件**通过 `ctx.registerSettingsPage` 注册的配置页面（按 `order` 升序、`title` 字母序排列）。
+### 5.1 Settings 左侧导航分区与两种挂载模式
 
-当某插件在 Plugin Manager 中被禁用时，其配置页会自动从 `Plugins` 区块移除；若用户当前正停留在该配置页，Settings 界面会自动安全回退至 `Appearance`。在 Plugin Manager 中点击插件卡片上的 `Configure` 按钮可直接跳转打开 Settings 并定位至该插件的配置页。
+`SettingsModal` 左侧导航栏固定划分为两个语义区块：
+1. **General 区块**（`aria-label="General Settings"`）：展示核心通用设置（`Appearance`、`Shortcuts`）以及 **`alwaysOn: true` 核心常驻插件**的独立配置页（如 `lighterm.terminal`）。
+2. **Plugins 区块**（`aria-label="Plugin Settings"`）：展示所有**已激活的非 `alwaysOn` 可选插件**的独立配置页（按 `order` 升序、`title` 字母序排列）。
+
+插件通过 `ctx.registerSettingsPage(...)` 注册配置界面时支持两种展示模式：
+1. **独立配置页模式（默认，不传 `mountTo`）**：在 `General`（`alwaysOn: true`）或 `Plugins`（可选插件）中拥有独立的左侧导航入口。
+2. **宿主挂载可折叠面板模式（指定 `mountTo`）**：不占用左侧导航独立 Tab，而是在指定的宿主配置页末尾追加一个**可折叠面板（Collapsible Panel）**，并在其中渲染该插件的配置组件（例如 `lighterm.history` 挂载在 `'lighterm.terminal:terminal'` 上）。
+   - 支持的目标格式：`'appearance'`、`'shortcuts'`、`'${hostPluginId}:${hostPageId}'`（推荐，如 `'lighterm.terminal:terminal'`）或简写 `'${hostPluginId}'`。
+   - 若指定的可选宿主插件当前被禁用或不存在，内核会安全回退为独立配置页，避免配置项不可达；禁止将配置页挂载到自身。
+
+当某插件在 Plugin Manager 中被禁用时，其独立配置页或挂载面板会自动移除；若当前正停留在被禁用的独立页，Settings 界面会自动安全回退至 `Appearance`。在 Plugin Manager 中点击插件卡片上的 `Configure` 按钮可直接跳转打开 Settings——若目标为挂载面板，会自动切换至宿主配置页并将该折叠面板自动展开。
 
 ### 5.2 注册插件配置页 (`ctx.registerSettingsPage`)
 
 ```tsx
+// 独立配置页（默认）
 ctx.registerSettingsPage({
   id: 'general',
   title: 'Demo Workbench',
@@ -182,13 +190,27 @@ ctx.registerSettingsPage({
   order: 60,
   component: DemoSettingsPage,
 });
+
+// 挂载到宿主配置页中的可折叠 Panel
+ctx.registerSettingsPage({
+  id: 'history',
+  title: 'Command History',
+  description: 'Configure history entry limits, Command Palette suggestions, and cleanup.',
+  icon: History,
+  order: 50,
+  mountTo: 'lighterm.terminal:terminal',
+  defaultExpanded: true,
+  component: HistorySettingsPage,
+});
 ```
 
 - `id` (`string`, 必填)：同一插件内唯一标识，最终 Tab 键为 `${pluginId}:${id}`。
-- `title` (`string`, 必填)：显示在 Settings 左侧 `Plugins` 列表及右侧配置页页头的标题。
-- `description` (`string`, 可选)：配置页标题下方的简短说明。
+- `title` (`string`, 必填)：显示在 Settings 左侧列表/可折叠面板标题栏及页头的标题。
+- `description` (`string`, 可选)：配置页或可折叠面板正文顶部的简短说明。
 - `icon` (`PluginIconComponent`, 可选)：省略时自动回退为 `PluginDefinition.icon` 或默认拼图图标。
-- `order` (`number`, 可选，默认 `100`)：控制插件在 `Plugins` 区块内的排序位置（内置插件占用 `10`–`50`，建议扩展插件从 `60` 起）。
+- `order` (`number`, 可选，默认 `100`)：控制插件在导航列表或同一宿主页面挂载面板中的排序位置（内置插件占用 `10`–`50`，建议扩展插件从 `60` 起）。
+- `mountTo` (`SettingsMountTarget`, 可选)：省略时注册为独立配置页；传入 `'appearance'`、`'shortcuts'` 或 `'${hostPluginId}:${hostPageId}'` 时，作为可折叠 Panel 挂载至目标配置页底部。
+- `defaultExpanded` (`boolean`, 可选，默认 `true`)：仅在指定 `mountTo` 时生效，控制该可折叠 Panel 初始是否展开；通过 Plugin Manager 的 `Configure` 按钮直达时始终临时展开。
 - `component` (`React.ComponentType<PluginSettingsPageProps>`, 必填)：接收 `{ pluginId }`。
 
 ### 5.3 标准化配置读写与持久化 (`PluginConfig`)
@@ -414,6 +436,6 @@ export const quickNotesPlugin = definePlugin({
 - [ ] 使用 `definePlugin` 定义，不向 Core 或 Layout 引擎添加任何插件专属硬编码判断。
 - [ ] 未注册 `'core:*'` 保留命名空间服务，且 `viewport.typeId` 全局唯一。
 - [ ] 所有 GUI 视口均显式声明了 `defaultPosition`（及合理的 `defaultDockRatio` / `defaultFloatSize` / `openOnStartup`）。
-- [ ] 插件配置项通过 `ctx.registerSettingsPage` 接入 Settings 左侧 `Plugins` 区块，并使用 `usePluginConfig` / `ctx.getConfig` / `ctx.updateConfig` 持久化。
+- [ ] 插件配置项通过 `ctx.registerSettingsPage` 接入 Settings（默认独立配置页归入 `Plugins`/`General`，或通过 `mountTo` 作为可折叠 Panel 挂载到指定配置页），并使用 `usePluginConfig` / `ctx.getConfig` / `ctx.updateConfig` 持久化。
 - [ ] 所有事件监听、定时器、动态命令与订阅均已通过 `ctx.onCleanup` 或返回值释放；关闭/禁用插件后可干净重新启用。
 - [ ] 通过全部验证：`pnpm exec tsc --noEmit`、`pnpm test --run`、`pnpm run build`、`cargo test --workspace`。

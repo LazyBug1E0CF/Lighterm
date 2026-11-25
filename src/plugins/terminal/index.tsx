@@ -9,6 +9,7 @@ import { TerminalSettingsTab } from './TerminalSettingsTab';
 import { TerminalViewport } from './TerminalViewport';
 
 export { TERMINAL_VIEWPORT_TYPE };
+export const TERMINAL_SETTINGS_PAGE_KEY = 'lighterm.terminal:terminal';
 
 const TerminalDimensionsBadge: React.FC = () => {
   const activeSessionId = useShellStore((s) => s.activeSessionId);

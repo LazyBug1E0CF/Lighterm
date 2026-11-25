@@ -239,9 +239,30 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
           },
         }),
       );
+
+      harnessKernel.register(
+        definePlugin({
+          id: 'acme.term-addon',
+          name: 'Terminal Addon',
+          version: '1.0.0',
+          description: 'Mounts collapsible settings panel onto Terminal',
+          icon: Puzzle,
+          activate(ctx) {
+            ctx.registerSettingsPage({
+              id: 'addon',
+              title: 'Terminal Addon',
+              description: 'Optional panel mounted inside Terminal.',
+              order: 70,
+              mountTo: 'lighterm.terminal:terminal',
+              defaultExpanded: false,
+              component: CustomSettingsView,
+            });
+          },
+        }),
+      );
     });
 
-    // Open Settings and inspect General (core + alwaysOn) vs Plugins (optional) navigation sections
+    // Open Settings and inspect General (core + alwaysOn standalone) vs Plugins (optional standalone) sections
     fireEvent.click(screen.getByLabelText('Settings'));
     const dialog = await screen.findByRole('dialog', { name: 'Settings' });
 
@@ -254,7 +275,6 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
       'Appearance',
       'Terminal',
       'Core Addon',
-      'Command History',
       'Shortcuts',
     ]);
 
@@ -266,10 +286,43 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
       'Custom Plugin',
     ]);
 
-    // Clicking alwaysOn plugin Terminal inside General renders its settings page
+    // Clicking Terminal renders TerminalSettingsTab plus mounted collapsible panels (Command History expanded, Terminal Addon collapsed)
     fireEvent.click(within(generalSection).getByRole('button', { name: 'Terminal' }));
     expect(dialog.querySelector('[data-plugin-settings-header="lighterm.terminal"]')).toBeTruthy();
     expect(within(dialog).getByText('Font Family')).toBeTruthy();
+
+    const historyPanel = dialog.querySelector(
+      '[data-plugin-settings-panel="lighterm.history"]',
+    ) as HTMLElement | null;
+    expect(historyPanel).toBeTruthy();
+    const historyToggleBtn = historyPanel!.querySelector(
+      '[data-plugin-settings-header="lighterm.history"]',
+    ) as HTMLButtonElement;
+    expect(historyToggleBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(within(historyPanel!).getByLabelText('Max History Entries Displayed')).toBeTruthy();
+
+    const addonPanel = dialog.querySelector(
+      '[data-plugin-settings-panel="acme.term-addon"]',
+    ) as HTMLElement | null;
+    expect(addonPanel).toBeTruthy();
+    const addonToggleBtn = addonPanel!.querySelector(
+      '[data-plugin-settings-header="acme.term-addon"]',
+    ) as HTMLButtonElement;
+    expect(addonToggleBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(within(addonPanel!).queryByTestId('custom-greeting-val')).toBeNull();
+
+    // Expanding collapsed mounted panel shows its settings UI, then collapsing hides it again
+    fireEvent.click(addonToggleBtn);
+    expect(addonToggleBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(within(addonPanel!).getByTestId('custom-greeting-val')).toBeTruthy();
+    fireEvent.click(addonToggleBtn);
+    expect(addonToggleBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(within(addonPanel!).queryByTestId('custom-greeting-val')).toBeNull();
+
+    // Collapsing Command History panel hides its content cleanly
+    fireEvent.click(historyToggleBtn);
+    expect(historyToggleBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(within(historyPanel!).queryByLabelText('Max History Entries Displayed')).toBeNull();
 
     // Switch to SFTP Browser settings page and verify live config + store update
     fireEvent.click(within(pluginsSection).getByRole('button', { name: 'SFTP Browser' }));
@@ -336,5 +389,34 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
       settingsReopened.querySelector('[data-plugin-settings-header="lighterm.snippets"]'),
     ).toBeTruthy();
     expect(within(settingsReopened).getByLabelText('Default Snippet Category')).toBeTruthy();
+
+    // Deep-linking to a mounted plugin (Configure Command History) opens Terminal Settings with History auto-expanded
+    fireEvent.click(within(settingsReopened).getByLabelText('Close Settings'));
+    fireEvent.click(screen.getByLabelText('Manage Plugins'));
+    const pluginModal3 = await screen.findByRole('dialog', { name: 'Plugin Manager' });
+    fireEvent.click(within(pluginModal3).getByLabelText('Configure Command History'));
+
+    const settingsHistoryDeepLink = await screen.findByRole('dialog', { name: 'Settings' });
+    expect(
+      settingsHistoryDeepLink.querySelector('[data-plugin-settings-header="lighterm.terminal"]'),
+    ).toBeTruthy();
+    const deepLinkedHistoryPanel = settingsHistoryDeepLink.querySelector(
+      '[data-plugin-settings-panel="lighterm.history"]',
+    ) as HTMLElement | null;
+    expect(deepLinkedHistoryPanel).toBeTruthy();
+    const deepLinkedToggle = deepLinkedHistoryPanel!.querySelector(
+      '[data-plugin-settings-header="lighterm.history"]',
+    ) as HTMLButtonElement;
+    expect(deepLinkedToggle.getAttribute('aria-expanded')).toBe('true');
+    expect(
+      within(deepLinkedHistoryPanel!).getByLabelText('Max History Entries Displayed'),
+    ).toBeTruthy();
+
+    // Clicking the header after deep-linking collapses it cleanly on the first click
+    fireEvent.click(deepLinkedToggle);
+    expect(deepLinkedToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(
+      within(deepLinkedHistoryPanel!).queryByLabelText('Max History Entries Displayed'),
+    ).toBeNull();
   }, 15000);
 });

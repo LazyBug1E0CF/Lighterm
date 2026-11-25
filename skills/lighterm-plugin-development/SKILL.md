@@ -85,7 +85,7 @@ Create `src/plugins/<name>/` with clean separation:
 1. **Define Plugin**: Wrap exported definition in `definePlugin({ id, name, version, description, icon, author, inject, provides, defaultEnabled, alwaysOn, activate(ctx) { ... } })`.
 2. **Inject Core Services**: `const shell = ctx.inject('core:shell');` and `const layout = ctx.inject('core:layout');` (`LightermServiceMap` provides full type inference automatically).
 3. **Register GUI Viewport**: Call `ctx.registerViewport({ typeId, title, icon, defaultPosition, defaultDockRatio?, defaultFloatSize?, singleton, openOnStartup?, activateOnStartup?, order, component, onClose? })`. Open or toggle it via `layout.toggleSingletonViewport({ typeId })` or `layout.openPluginViewport(typeId)`.
-4. **Register Settings Page**: Call `ctx.registerSettingsPage({ id, title, description?, icon?, order, component })`. Use `order >= 60` for new extensions (built-ins use `10`–`50`). Never use the deprecated `'settings:tabs'` slot.
+4. **Register Settings UI**: Call `ctx.registerSettingsPage({ id, title, description?, icon?, order, mountTo?, defaultExpanded?, component })`. Omit `mountTo` for a standalone Settings tab (placed in **General** if `alwaysOn: true`, or **Plugins** otherwise); set `mountTo` (e.g., `'lighterm.terminal:terminal'`, `'appearance'`, or `'shortcuts'`) to append it as a collapsible panel inside an existing Settings page. Use `order >= 60` for new extensions (built-ins use `10`–`50`). Never use the deprecated `'settings:tabs'` slot.
 5. **Read & Persist Config**:
    - Declare `export const DEFAULT_<NAME>_CONFIG = { ... } as const;` at **module top level** (never inline inside a component render, or `useSyncExternalStore` loops).
    - Inside React components: `const { config, updateConfig, resetConfig } = usePluginConfig(pluginId, DEFAULT_<NAME>_CONFIG);`
@@ -144,6 +144,6 @@ Detailed test recipes and common pitfall fixes:
 - [ ] Zero plugin-specific hardcoding inside `src/core/`, `src/layout/`, or core Tauri commands.
 - [ ] No `'core:*'` services provided; `viewport.typeId` is unique.
 - [ ] All viewports explicitly declare `defaultPosition`; interactive controls inside headers/cards stop drag propagation.
-- [ ] Settings UI registered with `ctx.registerSettingsPage` (`order >= 60` for new extensions) and module-level `DEFAULT_*_CONFIG`.
+- [ ] Settings UI registered with `ctx.registerSettingsPage` (`order >= 60` for new extensions; optional `mountTo` for collapsible panel inside a host page) and module-level `DEFAULT_*_CONFIG`.
 - [ ] All listeners/timers/dynamic commands disposed in `ctx.onCleanup`; singleton state reset in `resetLightermHarnessForTesting()`.
 - [ ] `tsc --noEmit`, `vitest`, `vite build`, and (when Rust touched) `cargo test --workspace` all pass cleanly.

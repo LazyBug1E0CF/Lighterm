@@ -69,6 +69,14 @@ it('renders Settings page in expected section, persists config, and disables cle
   fireEvent.click(within(section).getByRole('button', { name: 'My Plugin' }));
   expect(dialog.querySelector('[data-plugin-settings-header="acme.my-plugin"]')).toBeTruthy();
 
+  // If mounted with `mountTo` instead (e.g. `mountTo: 'lighterm.terminal:terminal'`):
+  // const hostBtn = within(nav).getByRole('button', { name: 'Terminal' });
+  // fireEvent.click(hostBtn);
+  // const panel = dialog.querySelector('[data-plugin-settings-panel="acme.my-plugin"]') as HTMLElement;
+  // const toggleBtn = panel.querySelector('[data-plugin-settings-header="acme.my-plugin"]') as HTMLButtonElement;
+  // expect(toggleBtn.getAttribute('aria-expanded')).toBe('true'); // or 'false' if defaultExpanded: false
+  // fireEvent.click(toggleBtn); // toggles collapse/expand cleanly
+
   // Exercise disable -> tab disappears and UI falls back cleanly to Appearance
   await act(async () => {
     await harnessKernel.disablePlugin('acme.my-plugin');

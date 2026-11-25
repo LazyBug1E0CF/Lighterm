@@ -10,7 +10,7 @@ Import everything from `'../../harness'` inside `src/plugins/<name>/`:
 
 - **Functions & Kernel**: `definePlugin`, `validatePluginDefinition`, `isValidPluginId`, `PLUGIN_ID_PATTERN`, `HarnessKernel`, `harnessKernel`
 - **React Hooks & Provider**: `HarnessProvider`, `useHarness`, `useHarnessSnapshot`, `usePluginStatuses`, `useViewportDescriptors`, `usePluginSettingsPages`, `usePluginConfig`, `useSlotItems`, `useCommands`
-- **Constants & Types**: `VIEWPORT_POSITIONS`, `VIEWPORT_POSITION_LABELS`, `LightermServiceMap`, `PluginDefinition`, `PluginContext`, `PluginRuntimeStatus`, `PluginIconComponent`, `ViewportPosition`, `PreferredDockPosition`, `ViewportRegistration`, `ViewportDescriptor`, `ViewportInstanceRef`, `ViewportComponentProps`, `PluginSettingsPageDescriptor`, `PluginSettingsPageProps`, `SlotName`, `SlotContribution`, `CommandDescriptor`, `HarnessSnapshot`
+- **Constants & Types**: `VIEWPORT_POSITIONS`, `VIEWPORT_POSITION_LABELS`, `LightermServiceMap`, `PluginDefinition`, `PluginContext`, `PluginRuntimeStatus`, `PluginIconComponent`, `ViewportPosition`, `PreferredDockPosition`, `ViewportRegistration`, `ViewportDescriptor`, `ViewportInstanceRef`, `ViewportComponentProps`, `PluginSettingsPageDescriptor`, `PluginSettingsPageProps`, `SettingsMountTarget`, `SlotName`, `SlotContribution`, `CommandDescriptor`, `HarnessSnapshot`
 
 ---
 
@@ -112,25 +112,42 @@ When a `'center'` viewport (such as a terminal) opens while `dockRoot` contains 
 
 ---
 
-## 5. Settings Pages & `PluginConfig` Persistence
+## 5. Settings Pages, Mounted Panels & `PluginConfig` Persistence
 
-### Settings Navigation Placement
+### Settings Navigation & Mounting Modes
 `SettingsModal` (`src/components/settings/SettingsModal.tsx`) splits its left `<nav aria-label="Settings Navigation">` into two `role="group"` sections:
-1. **`General Settings`** (`aria-label="General Settings"`): `Appearance`, followed by all Settings pages registered by plugins with `alwaysOn: true` (sorted by `order`, then `title`), then `Shortcuts`.
-2. **`Plugin Settings`** (`aria-label="Plugin Settings"`): All Settings pages registered by active optional (`alwaysOn !== true`) plugins. Shows count badge when non-empty.
+1. **`General Settings`** (`aria-label="General Settings"`): `Appearance`, followed by standalone Settings pages registered by plugins with `alwaysOn: true` (sorted by `order`, then `title`), then `Shortcuts`.
+2. **`Plugin Settings`** (`aria-label="Plugin Settings"`): Standalone Settings pages registered by active optional (`alwaysOn !== true`) plugins. Shows count badge when non-empty.
 
-- Page tab keys are `${pluginId}:${id}`.
-- Deep-link from anywhere (e.g., Plugin Manager `Configure` button): `shell.openSettings(`${pluginId}:${pageId}`)`.
-- If the currently open plugin is disabled while Settings is visible, its tab disappears and `SettingsModal` falls back to `'appearance'`.
+Plugins registering via `ctx.registerSettingsPage(...)` support two placement modes:
+- **Standalone Page (default, omit `mountTo`)**: Gets its own left-nav entry under `General` (`alwaysOn: true`) or `Plugins` (optional) keyed by `${pluginId}:${id}`.
+- **Mounted Collapsible Panel (`mountTo` set)**: Does **not** create a separate left-nav item; instead appends a collapsible panel inside the target Settings page:
+  - Accepted targets (`SettingsMountTarget`): `'appearance'`, `'shortcuts'`, `'${hostPluginId}:${hostPageId}'` (recommended, e.g. `'lighterm.terminal:terminal'` — where `lighterm.history` mounts), or shorthand `'${hostPluginId}'`.
+  - Self-mounting (`mountTo === '${pluginId}:${id}'` or `mountTo === pluginId`) throws during registration.
+  - Fallback: if an optional target plugin is disabled/missing, the kernel/UI gracefully promotes the mounted page to a standalone tab so settings remain reachable.
+  - Deep-link from Plugin Manager `Configure` (`shell.openSettings('${pluginId}:${pageId}')`): automatically opens the host tab in the sidebar and expands the mounted panel (ignoring prior collapse state until toggled).
+  - If a currently viewed standalone plugin is disabled while Settings is open, its tab disappears and `SettingsModal` falls back to `'appearance'`.
 
 ### `registerSettingsPage` & `usePluginConfig`
 ```ts
+// Standalone page (default)
 ctx.registerSettingsPage({
   id: 'my-plugin',
   title: 'My Plugin',
   description: 'Configure plugin options.',
   icon: MyIcon, // Optional: defaults to PluginDefinition.icon -> Puzzle
   order: 60,    // Built-ins reserve 10-50; start third-party extensions at 60+
+  component: MyPluginSettingsPage,
+});
+
+// Collapsible panel mounted onto Terminal settings
+ctx.registerSettingsPage({
+  id: 'my-terminal-addon',
+  title: 'My Terminal Addon',
+  description: 'Extra options appended inside Terminal settings.',
+  order: 60,
+  mountTo: 'lighterm.terminal:terminal',
+  defaultExpanded: false, // Defaults to true
   component: MyPluginSettingsPage,
 });
 ```

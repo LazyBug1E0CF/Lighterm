@@ -30,6 +30,7 @@ export {
   type PluginSettingsPageDescriptor,
   type PluginSettingsPageProps,
   type PreferredDockPosition,
+  type SettingsMountTarget,
   type SlotContribution,
   type SlotName,
   type ViewportComponentProps,

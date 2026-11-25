@@ -77,6 +77,7 @@ export const historyPlugin = definePlugin({
       description: 'Configure history entry limits, Command Palette suggestions, and cleanup.',
       icon: History,
       order: 50,
+      mountTo: 'lighterm.terminal:terminal',
       component: HistorySettingsPage,
     });
 

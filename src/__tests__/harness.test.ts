@@ -377,6 +377,52 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
     await kernel.disablePlugin('acme.owner');
     expect(kernel.getSettingsPages().map((p) => p.id)).toEqual(['alpha-cfg']);
 
+    // Settings page mountTo trims whitespace, defaults defaultExpanded=true, and rejects self-mounting
+    kernel.register(
+      definePlugin({
+        id: 'acme.mounted',
+        name: 'Mounted Panel',
+        version: '1.0.0',
+        description: 'Mounts onto alpha settings page',
+        activate(ctx) {
+          ctx.registerSettingsPage({
+            id: 'sub',
+            title: 'Mounted Subpanel',
+            mountTo: '  acme.alpha:alpha-cfg  ',
+            defaultExpanded: false,
+            component: DummyComp,
+          });
+        },
+      }),
+    );
+    const mountedDesc = kernel.getSettingsPages().find((p) => p.pluginId === 'acme.mounted');
+    expect(mountedDesc?.mountTo).toBe('acme.alpha:alpha-cfg');
+    expect(mountedDesc?.defaultExpanded).toBe(false);
+    expect(kernel.getSettingsPages().find((p) => p.pluginId === 'acme.alpha')?.defaultExpanded).toBe(
+      true,
+    );
+
+    kernel.register(
+      definePlugin({
+        id: 'acme.self-mount',
+        name: 'Self Mount',
+        version: '1.0.0',
+        description: 'Invalid self mount',
+        activate(ctx) {
+          ctx.registerSettingsPage({
+            id: 'self',
+            title: 'Self Panel',
+            mountTo: 'acme.self-mount:self',
+            component: DummyComp,
+          });
+        },
+      }),
+    );
+    expect(kernel.isPluginActive('acme.self-mount')).toBe(false);
+    expect(kernel.getPluginStatuses().find((p) => p.id === 'acme.self-mount')?.error).toMatch(
+      /cannot mount to itself/,
+    );
+
     // Plugin config update, persistence, reset, and external localStorage.clear() detection
     const defaults = { interval: 2500, showBanner: true };
     expect(kernel.getPluginConfig('acme.alpha', defaults)).toEqual(defaults);
