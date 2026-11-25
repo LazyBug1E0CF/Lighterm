@@ -8,6 +8,7 @@ use lighterm_plugin_history::HistoryPlugin;
 use lighterm_plugin_monitor::MonitorPlugin;
 use lighterm_plugin_sftp::SftpPlugin;
 use lighterm_plugin_snippets::SnippetsPlugin;
+use lighterm_plugin_sync::SyncPlugin;
 use tauri::{Emitter, Manager};
 
 #[cfg(target_os = "linux")]
@@ -66,6 +67,8 @@ pub fn run() {
         .expect("Failed to register Snippets plugin");
     core.register_plugin(Arc::new(HistoryPlugin::new()))
         .expect("Failed to register History plugin");
+    core.register_plugin(Arc::new(SyncPlugin::new()))
+        .expect("Failed to register Sync plugin");
 
     let window_bounds = Arc::new(commands::WindowBoundsTracker::default());
     let core_setup = Arc::clone(&core);
@@ -171,6 +174,19 @@ pub fn run() {
             commands::history_delete,
             commands::history_clear,
             commands::monitor_get_stats,
+            commands::sync_get_config,
+            commands::sync_save_config,
+            commands::sync_reset_state,
+            commands::sync_oauth_start,
+            commands::sync_oauth_poll,
+            commands::sync_oauth_cancel,
+            commands::sync_oauth_logout,
+            commands::sync_open_verification_url,
+            commands::sync_test_connection,
+            commands::sync_discover_gists,
+            commands::sync_now,
+            commands::sync_push,
+            commands::sync_pull,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lighterm");

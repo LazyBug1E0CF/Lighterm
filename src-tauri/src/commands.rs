@@ -15,6 +15,10 @@ use lighterm_plugin_history::{HistoryEntry, HistoryPlugin};
 use lighterm_plugin_monitor::{MonitorPlugin, SystemStats};
 use lighterm_plugin_sftp::{SftpEntry, SftpPlugin};
 use lighterm_plugin_snippets::{Snippet, SnippetsPlugin};
+use lighterm_plugin_sync::{
+    DiscoveredGist, GitHubSyncConfig, OAuthDeviceFlowStart, OAuthPollResult, SyncConfigUpdateInput,
+    SyncConfigView, SyncOperationResult, SyncPlugin, SyncTestResult,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -760,4 +764,128 @@ pub async fn monitor_get_stats(
             monitor.collect_ssh(&host).await
         }
     }
+}
+
+// ---- GitHub Sync Plugin Commands ----
+
+fn apply_sync_side_effects(core: &LightermCore, result: &SyncOperationResult) {
+    for host_id in &result.invalidated_host_ids {
+        core.ssh_pool.invalidate(host_id);
+        core.plugins.notify_host_invalidated(host_id);
+    }
+    if !result.updated_plugin_states.is_empty() {
+        let ctx = core.context();
+        for (plugin_id, enabled) in &result.updated_plugin_states {
+            if plugin_id == "lighterm.sync" {
+                continue;
+            }
+            let _ = core.plugins.set_enabled(plugin_id, *enabled, &ctx);
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn sync_get_config(state: State<'_, AppState>) -> CoreResult<SyncConfigView> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    run_blocking(CoreError::PluginError, move || sync.get_config_view()).await
+}
+
+#[tauri::command]
+pub async fn sync_save_config(
+    state: State<'_, AppState>,
+    input: SyncConfigUpdateInput,
+) -> CoreResult<SyncConfigView> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    run_blocking(CoreError::PluginError, move || sync.save_config(input)).await
+}
+
+#[tauri::command]
+pub async fn sync_reset_state(state: State<'_, AppState>) -> CoreResult<SyncConfigView> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    run_blocking(CoreError::PluginError, move || sync.reset_local_state()).await
+}
+
+#[tauri::command]
+pub async fn sync_oauth_start(
+    state: State<'_, AppState>,
+    config_override: Option<GitHubSyncConfig>,
+    open_browser: Option<bool>,
+) -> CoreResult<OAuthDeviceFlowStart> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    sync.start_oauth_device_flow(config_override, open_browser.unwrap_or(true))
+        .await
+}
+
+#[tauri::command]
+pub async fn sync_oauth_poll(
+    state: State<'_, AppState>,
+    flow_id: String,
+) -> CoreResult<OAuthPollResult> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    sync.poll_oauth_device_flow(&flow_id).await
+}
+
+#[tauri::command]
+pub async fn sync_oauth_cancel(state: State<'_, AppState>, flow_id: String) -> CoreResult<()> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    run_blocking(CoreError::PluginError, move || {
+        sync.cancel_oauth_device_flow(&flow_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn sync_oauth_logout(state: State<'_, AppState>) -> CoreResult<SyncConfigView> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    run_blocking(CoreError::PluginError, move || sync.logout_oauth()).await
+}
+
+#[tauri::command]
+pub async fn sync_open_verification_url(
+    state: State<'_, AppState>,
+    url: String,
+) -> CoreResult<()> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    run_blocking(CoreError::PluginError, move || sync.open_verification_url(&url)).await
+}
+
+#[tauri::command]
+pub async fn sync_test_connection(
+    state: State<'_, AppState>,
+    config_override: Option<GitHubSyncConfig>,
+) -> CoreResult<SyncTestResult> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    sync.test_connection(config_override).await
+}
+
+#[tauri::command]
+pub async fn sync_discover_gists(
+    state: State<'_, AppState>,
+    api_base_url: Option<String>,
+    file_name: Option<String>,
+) -> CoreResult<Vec<DiscoveredGist>> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    sync.discover_gists(api_base_url, file_name).await
+}
+
+#[tauri::command]
+pub async fn sync_now(state: State<'_, AppState>) -> CoreResult<SyncOperationResult> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    let result = sync.sync_now().await?;
+    apply_sync_side_effects(&state.core, &result);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn sync_push(state: State<'_, AppState>) -> CoreResult<SyncOperationResult> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    sync.push().await
+}
+
+#[tauri::command]
+pub async fn sync_pull(state: State<'_, AppState>) -> CoreResult<SyncOperationResult> {
+    let sync = state.core.plugins.get_active::<SyncPlugin>("lighterm.sync")?;
+    let result = sync.pull().await?;
+    apply_sync_side_effects(&state.core, &result);
+    Ok(result)
 }

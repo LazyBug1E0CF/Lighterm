@@ -8,6 +8,7 @@ import { hostsPlugin } from './hosts';
 import { monitorPanelService, monitorPlugin } from './monitor';
 import { sftpPlugin } from './sftp';
 import { snippetsPlugin } from './snippets';
+import { syncClient, syncPlugin } from './sync';
 import { terminalPlugin, TERMINAL_VIEWPORT_TYPE } from './terminal';
 
 let bootstrapPromise: Promise<void> | null = null;
@@ -23,6 +24,7 @@ export function registerBuiltinPlugins(kernel = harnessKernel): void {
   kernel.register(sftpPlugin);
   kernel.register(snippetsPlugin);
   kernel.register(historyPlugin);
+  kernel.register(syncPlugin);
 }
 
 // Populate plugin metadata immediately on module load before the first React render.
@@ -88,6 +90,7 @@ export function resetLightermHarnessForTesting(): void {
   shellService.resetForTesting();
   windowControls.resetForTesting();
   monitorPanelService.resetForTesting();
+  syncClient.resetForTesting();
 }
 
 export {
@@ -97,6 +100,7 @@ export {
   sftpPlugin,
   snippetsPlugin,
   historyPlugin,
+  syncPlugin,
 };
 
 if (import.meta.hot) {

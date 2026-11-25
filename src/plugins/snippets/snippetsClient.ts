@@ -61,11 +61,17 @@ export const useSnippetsPluginStore = create<{ snippets: Snippet[] }>(() => ({
 }));
 
 const changeListeners = new Set<(snippets: Snippet[]) => void>();
+const mutatedListeners = new Set<() => void>();
 
 export const snippetsClient = {
   onChange(cb: (snippets: Snippet[]) => void): () => void {
     changeListeners.add(cb);
     return () => changeListeners.delete(cb);
+  },
+
+  onMutated(cb: () => void): () => void {
+    mutatedListeners.add(cb);
+    return () => mutatedListeners.delete(cb);
   },
 
   async load(): Promise<Snippet[]> {
@@ -94,6 +100,7 @@ export const snippetsClient = {
       writeLs(LS_SNIPPETS, list);
     }
     await this.load();
+    mutatedListeners.forEach((cb) => cb());
     return saved;
   },
 
@@ -105,5 +112,6 @@ export const snippetsClient = {
       writeLs(LS_SNIPPETS, list);
     }
     await this.load();
+    mutatedListeners.forEach((cb) => cb());
   },
 };

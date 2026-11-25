@@ -25,6 +25,7 @@ All higher-level features are implemented as independent, hot-toggleable plugins
 - **`lighterm.monitor`** (`crates/plugins/monitor`, `src/plugins/monitor`): Real-time local & remote SSH CPU, memory, network, disk, and process telemetry with tear-off modular viewports (`monitor.panel`, `monitor.host`, `monitor.cpu`, `monitor.memory`, `monitor.network`, `monitor.disks`, `monitor.processes`) that can be dragged into independent drawer, split, or floating viewports
 - **`lighterm.snippets`** (`crates/plugins/snippets`, `src/plugins/snippets`): Reusable command templates with `{{variable}}` prompts
 - **`lighterm.history`** (`crates/plugins/history`, `src/plugins/history`): Searchable deduplicated command history subscribed directly to `core:shell` I/O streams
+- **`lighterm.sync`** (`crates/plugins/sync`, `src/plugins/sync`): Cross-device GitHub configuration sync via OAuth Device Flow using Lighterm's built-in OAuth App Client ID out of the box (overridable via `LIGHTERM_GITHUB_CLIENT_ID` or Optional & Advanced Settings), defaulting to an auto-managed Secret Gist with optional Private Repository and AES-256-GCM end-to-end encryption
 
 ## Development & Verification
 

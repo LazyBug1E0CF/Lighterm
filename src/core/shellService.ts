@@ -131,6 +131,8 @@ type SessionClosedListener = (sessionId: string) => void;
 type SessionInputListener = (sessionId: string, text: string) => void;
 type SessionOutputListener = (sessionId: string, bytes: Uint8Array) => void;
 type ActiveSessionListener = (sessionId: string | null) => void;
+type ConfigReloadedListener = () => void;
+type ConfigMutatedListener = (scope: string) => void;
 
 interface MockSession {
   info: SessionInfo;
@@ -150,6 +152,8 @@ const sessionClosedListeners = new Set<SessionClosedListener>();
 const sessionInputListeners = new Set<SessionInputListener>();
 const sessionOutputListeners = new Set<SessionOutputListener>();
 const activeSessionListeners = new Set<ActiveSessionListener>();
+const configReloadedListeners = new Set<ConfigReloadedListener>();
+const configMutatedListeners = new Set<ConfigMutatedListener>();
 
 let tauriListenersPromise: Promise<void> | null = null;
 let initPromise: Promise<void> | null = null;
@@ -707,6 +711,51 @@ export class ShellService {
     return () => activeSessionListeners.delete(cb);
   }
 
+  onConfigReloaded(cb: ConfigReloadedListener): () => void {
+    configReloadedListeners.add(cb);
+    return () => configReloadedListeners.delete(cb);
+  }
+
+  onConfigMutated(cb: ConfigMutatedListener): () => void {
+    configMutatedListeners.add(cb);
+    return () => configMutatedListeners.delete(cb);
+  }
+
+  notifyConfigMutated(scope: string): void {
+    configMutatedListeners.forEach((cb) => {
+      try {
+        cb(scope);
+      } catch {
+        // Isolate listener errors
+      }
+    });
+  }
+
+  async reloadAll(): Promise<void> {
+    const [settings, hosts, savedWorkspaces] = await Promise.all([
+      this.loadSettings().catch(() => createDefaultSettings()),
+      this.listHosts().catch(() => [] as HostConfig[]),
+      this.listSavedWorkspaces().catch(() => [] as SavedWorkspace[]),
+    ]);
+    const defaults = createDefaultSettings();
+    useShellStore.setState({
+      settings: {
+        ...defaults,
+        ...settings,
+        shortcuts: { ...defaults.shortcuts, ...settings.shortcuts },
+      },
+      hosts,
+      savedWorkspaces,
+    });
+    configReloadedListeners.forEach((cb) => {
+      try {
+        cb();
+      } catch {
+        // Isolate listener errors
+      }
+    });
+  }
+
   // ---- Core Host Management ----
 
   async listHosts(): Promise<HostConfig[]> {
@@ -735,6 +784,7 @@ export class ShellService {
     }
     const hosts = await this.listHosts();
     useShellStore.setState({ hosts, hostModalOpen: false, editingHost: null });
+    this.notifyConfigMutated('hosts');
     return saved;
   }
 
@@ -746,6 +796,7 @@ export class ShellService {
       writeLs(LS_HOSTS, hosts);
     }
     await this.listHosts();
+    this.notifyConfigMutated('hosts');
   }
 
   async testHostConnection(host: HostConfig): Promise<ConnectionTestResult> {
@@ -807,6 +858,7 @@ export class ShellService {
     }
 
     await this.listSavedWorkspaces();
+    this.notifyConfigMutated('workspaces');
     return saved;
   }
 
@@ -820,6 +872,7 @@ export class ShellService {
       writeLs(LS_WORKSPACES, workspaces);
     }
     await this.listSavedWorkspaces();
+    this.notifyConfigMutated('workspaces');
   }
 
   // ---- Core Settings ----
@@ -848,6 +901,7 @@ export class ShellService {
           return merged;
         })();
     useShellStore.setState({ settings: saved });
+    this.notifyConfigMutated('settings');
     return saved;
   }
 
@@ -905,6 +959,8 @@ export class ShellService {
     sessionInputListeners.clear();
     sessionOutputListeners.clear();
     activeSessionListeners.clear();
+    configReloadedListeners.clear();
+    configMutatedListeners.clear();
     useShellStore.setState({
       initialized: false,
       sessions: {},

@@ -145,6 +145,23 @@ impl Storage {
         self.read_json_or_default("plugin-configs.json")
     }
 
+    pub fn save_all_plugin_configs(&self, configs: &HashMap<String, serde_json::Value>) -> CoreResult<()> {
+        for (plugin_id, value) in configs {
+            if !crate::plugin::is_valid_plugin_id(plugin_id) {
+                return Err(CoreError::InvalidInput(format!(
+                    "Invalid plugin ID '{plugin_id}'"
+                )));
+            }
+            if !value.is_object() {
+                return Err(CoreError::InvalidInput(format!(
+                    "Plugin config for '{plugin_id}' must be a JSON object"
+                )));
+            }
+        }
+        let _guard = self.lock.lock();
+        self.write_json_atomic("plugin-configs.json", configs, false)
+    }
+
     pub fn get_plugin_config(&self, plugin_id: &str) -> CoreResult<serde_json::Value> {
         if !crate::plugin::is_valid_plugin_id(plugin_id) {
             return Err(CoreError::InvalidInput(format!(
@@ -235,6 +252,11 @@ impl Storage {
         self.write_json_atomic("hosts.json", &hosts, true)
     }
 
+    pub fn replace_hosts(&self, hosts: &[HostConfig]) -> CoreResult<()> {
+        let _guard = self.lock.lock();
+        self.write_json_atomic("hosts.json", &hosts, true)
+    }
+
     // ---- Workspaces ----
 
     pub fn list_workspaces(&self) -> CoreResult<Vec<SavedWorkspace>> {
@@ -281,6 +303,11 @@ impl Storage {
         let _guard = self.lock.lock();
         let mut workspaces: Vec<SavedWorkspace> = self.read_json_or_default("workspaces.json")?;
         workspaces.retain(|w| w.id != id);
+        self.write_json_atomic("workspaces.json", &workspaces, true)
+    }
+
+    pub fn replace_workspaces(&self, workspaces: &[SavedWorkspace]) -> CoreResult<()> {
+        let _guard = self.lock.lock();
         self.write_json_atomic("workspaces.json", &workspaces, true)
     }
 

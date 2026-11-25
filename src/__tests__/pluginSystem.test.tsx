@@ -283,6 +283,7 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
       'System Status',
       'SFTP Browser',
       'Snippets',
+      'GitHub Sync',
       'Custom Plugin',
     ]);
 

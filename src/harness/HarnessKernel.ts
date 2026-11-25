@@ -220,6 +220,78 @@ export class HarnessKernel {
     return { ...(defaults ?? ({} as T)) };
   }
 
+  async reloadPluginConfigsFromBackend(): Promise<void> {
+    if (!isTauriRuntime()) {
+      this.pluginConfigs.clear();
+      this.rebuildSnapshot();
+      return;
+    }
+
+    try {
+      const backendConfigs = await invokeTauri<Record<string, Record<string, unknown>>>(
+        'plugin_configs_get_all',
+      );
+      if (!backendConfigs || typeof backendConfigs !== 'object') {
+        return;
+      }
+
+      const incomingIds = new Set(Object.keys(backendConfigs));
+      for (const existingId of [...this.pluginConfigs.keys()]) {
+        if (!incomingIds.has(existingId)) {
+          this.writeLsRaw(`${LS_PLUGIN_CONFIG_PREFIX}${existingId}`, null);
+          this.pluginConfigs.delete(existingId);
+        }
+      }
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key && key.startsWith(LS_PLUGIN_CONFIG_PREFIX)) {
+            const pluginId = key.slice(LS_PLUGIN_CONFIG_PREFIX.length);
+            if (!incomingIds.has(pluginId)) {
+              keysToRemove.push(key);
+            }
+          }
+        }
+        for (const key of keysToRemove) {
+          this.writeLsRaw(key, null);
+        }
+      }
+
+      for (const [pluginId, cfg] of Object.entries(backendConfigs)) {
+        if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) continue;
+        const rawLs = JSON.stringify(cfg);
+        this.writeLsRaw(`${LS_PLUGIN_CONFIG_PREFIX}${pluginId}`, rawLs);
+        this.pluginConfigs.set(pluginId, { rawLs, data: { ...cfg } });
+      }
+      this.rebuildSnapshot();
+    } catch {
+      // Ignore if backend plugin configs command is unavailable
+    }
+  }
+
+  async applyPluginEnabledStates(
+    states: Record<string, boolean>,
+    excludePluginId?: string,
+  ): Promise<void> {
+    for (const [id, desired] of Object.entries(states)) {
+      if (id === excludePluginId) continue;
+      const entry = this.plugins.get(id);
+      if (!entry || entry.def.alwaysOn) continue;
+      const desiredBool = Boolean(desired);
+      if (entry.enabled === desiredBool) continue;
+      try {
+        if (desiredBool) {
+          await this.enablePlugin(id);
+        } else {
+          await this.disablePlugin(id);
+        }
+      } catch {
+        // Ignore individual dependency errors so remaining plugins still reconcile
+      }
+    }
+  }
+
   onPluginActivated(listener: (pluginId: string) => void): () => void {
     this.activationListeners.add(listener);
     return () => {

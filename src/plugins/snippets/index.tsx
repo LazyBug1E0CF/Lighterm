@@ -76,8 +76,16 @@ export const snippetsPlugin = definePlugin({
     };
 
     const unsubChange = snippetsClient.onChange(syncCommands);
+    const unsubMutated = snippetsClient.onMutated(() => {
+      shell.notifyConfigMutated('snippets');
+    });
+    const unsubReload = shell.onConfigReloaded(() => {
+      void snippetsClient.load().catch(() => {});
+    });
     ctx.onCleanup(() => {
       unsubChange();
+      unsubMutated();
+      unsubReload();
       dynDisposers.forEach((d) => d());
       dynDisposers = [];
     });

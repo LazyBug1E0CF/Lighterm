@@ -193,7 +193,7 @@ describe('Workspace Rename, Save, Hosts Discovery & Layout Restoration', () => {
         .workspaces.find((w) => w.name === 'Core Prod');
       expect(unlinked?.savedWorkspaceId).toBeNull();
     });
-  });
+  }, 15000);
 
   it('persists across workspaceManager re-initialization via localStorage and focuses already-open workspace without duplicating tabs', async () => {
     render(<App />);

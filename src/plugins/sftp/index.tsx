@@ -44,9 +44,14 @@ export const sftpPlugin = definePlugin({
         }
       })
       .catch(() => {});
+    const unsubReload = shell.onConfigReloaded(() => {
+      const cfg = ctx.getConfig(DEFAULT_SFTP_CONFIG);
+      sftpClient.setShowHidden(Boolean(cfg.showHiddenByDefault));
+    });
     ctx.onCleanup(() => {
       disposed = true;
       unlistenProgress?.();
+      unsubReload();
     });
 
     ctx.registerViewport({

@@ -17,6 +17,7 @@ lighterm-plugin-history = { path = "../crates/plugins/history" }
 lighterm-plugin-monitor = { path = "../crates/plugins/monitor" }
 lighterm-plugin-sftp = { path = "../crates/plugins/sftp" }
 lighterm-plugin-snippets = { path = "../crates/plugins/snippets" }
+lighterm-plugin-sync = { path = "../crates/plugins/sync" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
