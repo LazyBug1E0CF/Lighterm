@@ -30,6 +30,8 @@ import type {
   OpenViewportOptions,
   QuickShellLayoutPreset,
   SnapTarget,
+  StartTearOffDragOptions,
+  TearOffViewportSpec,
   ViewportDragState,
   ViewportInstance,
   WorkspaceState,
@@ -1015,6 +1017,36 @@ export class LayoutService {
     });
   }
 
+  detachToViewport(
+    spec: TearOffViewportSpec & { preferredDock?: PreferredDockPosition },
+  ): ViewportInstance {
+    const desc = harnessKernel.getViewportDescriptor(spec.typeId);
+    const preferred =
+      spec.preferredDock ?? desc?.defaultPosition ?? desc?.defaultDock ?? 'right-drawer';
+    const dockRatio = spec.dockRatio ?? desc?.defaultDockRatio;
+    const floatRect = spec.floatRect ?? desc?.defaultFloatSize;
+
+    const existing = desc?.singleton ? this.findViewportsByType(spec.typeId)[0] : undefined;
+    if (existing) {
+      this.placeDetachedViewport(existing.id, preferred, dockRatio, floatRect);
+      spec.onCommit?.(existing);
+      return existing;
+    }
+
+    const created = this.openViewport({
+      typeId: spec.typeId,
+      pluginId: spec.pluginId,
+      title: spec.title,
+      params: spec.params,
+      preferredDock: preferred,
+      dockRatio,
+      floatRect,
+      activateDrawer: true,
+    });
+    spec.onCommit?.(created);
+    return created;
+  }
+
   mountStartupPluginViewports(
     scope: 'drawers' | 'workspace' | 'all' = 'all',
     onlyPluginId?: string,
@@ -1442,6 +1474,38 @@ export class LayoutService {
     });
   }
 
+  startTearOffDrag(opts: StartTearOffDragOptions): void {
+    const currentX = opts.currentX ?? opts.startX;
+    const currentY = opts.currentY ?? opts.startY;
+    const active = opts.active ?? Math.hypot(currentX - opts.startX, currentY - opts.startY) >= 5;
+
+    useLayoutStore.setState({
+      dragState: {
+        viewportId: '__tearoff__',
+        source: 'tear-off',
+        startX: opts.startX,
+        startY: opts.startY,
+        currentX,
+        currentY,
+        active,
+        floatOffsetX: opts.floatOffsetX ?? 120,
+        floatOffsetY: opts.floatOffsetY ?? 16,
+        snapTarget: null,
+        tearOff: {
+          typeId: opts.typeId,
+          pluginId: opts.pluginId,
+          title: opts.title,
+          params: opts.params,
+          dockRatio: opts.dockRatio,
+          floatRect: opts.floatRect,
+          originViewportId: opts.originViewportId,
+          onCommit: opts.onCommit,
+          onCancel: opts.onCancel,
+        },
+      },
+    });
+  }
+
   updateDrag(currentX: number, currentY: number, snapTarget: SnapTarget | null): void {
     const state = useLayoutStore.getState();
     const drag = state.dragState;
@@ -1469,7 +1533,91 @@ export class LayoutService {
     const state = useLayoutStore.getState();
     const drag = state.dragState;
     useLayoutStore.setState({ dragState: null });
-    if (!drag || !drag.active) return;
+    if (!drag || !drag.active) {
+      if (drag?.source === 'tear-off') {
+        drag.tearOff?.onCancel?.();
+      }
+      return;
+    }
+
+    if (drag.source === 'tear-off' && drag.tearOff) {
+      const spec = drag.tearOff;
+      const desc = harnessKernel.getViewportDescriptor(spec.typeId);
+      const existing = desc?.singleton ? this.findViewportsByType(spec.typeId)[0] : undefined;
+      let result: ViewportInstance;
+
+      if (drag.snapTarget?.kind === 'drawer') {
+        const side = drag.snapTarget.side;
+        if (existing) {
+          this.dockToDrawer(existing.id, side, true);
+          result = existing;
+        } else {
+          result = this.openViewport({
+            typeId: spec.typeId,
+            pluginId: spec.pluginId,
+            title: spec.title,
+            params: spec.params,
+            preferredDock: side === 'left' ? 'left-drawer' : 'right-drawer',
+            activateDrawer: true,
+          });
+        }
+      } else if (drag.snapTarget?.kind === 'edge') {
+        const edge = drag.snapTarget.edge;
+        const ratio = spec.dockRatio ?? desc?.defaultDockRatio;
+        if (existing) {
+          this.dockToEdge(existing.id, edge, ratio);
+          result = existing;
+        } else {
+          result = this.openViewport({
+            typeId: spec.typeId,
+            pluginId: spec.pluginId,
+            title: spec.title,
+            params: spec.params,
+            preferredDock: edge,
+            dockRatio: ratio,
+          });
+        }
+      } else if (drag.snapTarget?.kind === 'group') {
+        const { groupId, zone } = drag.snapTarget;
+        if (existing) {
+          this.dockToGroup(existing.id, groupId, zone);
+          result = existing;
+        } else {
+          result = this.openViewport({
+            typeId: spec.typeId,
+            pluginId: spec.pluginId,
+            title: spec.title,
+            params: spec.params,
+            preferredDock: 'center',
+            targetGroupId: groupId,
+            splitZone: zone,
+          });
+        }
+      } else {
+        const floatRect = {
+          ...desc?.defaultFloatSize,
+          ...spec.floatRect,
+          x: Math.max(12, drag.currentX - drag.floatOffsetX),
+          y: Math.max(12, drag.currentY - drag.floatOffsetY),
+        };
+        if (existing) {
+          this.floatViewport(existing.id, floatRect);
+          result = existing;
+        } else {
+          result = this.openViewport({
+            typeId: spec.typeId,
+            pluginId: spec.pluginId,
+            title: spec.title,
+            params: spec.params,
+            preferredDock: 'float',
+            floatRect,
+          });
+        }
+      }
+
+      spec.onCommit?.(result);
+      return;
+    }
 
     if (drag.snapTarget?.kind === 'drawer') {
       this.dockToDrawer(drag.viewportId, drag.snapTarget.side, true);
@@ -1495,7 +1643,11 @@ export class LayoutService {
   }
 
   cancelDrag(): void {
+    const prev = useLayoutStore.getState().dragState;
     useLayoutStore.setState({ dragState: null });
+    if (prev?.source === 'tear-off') {
+      prev.tearOff?.onCancel?.();
+    }
   }
 
   resetLayoutPreservingViewports(): void {

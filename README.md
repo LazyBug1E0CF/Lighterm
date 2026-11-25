@@ -22,7 +22,7 @@ All higher-level features are implemented as independent, hot-toggleable plugins
 - **`lighterm.terminal`** (`src/plugins/terminal`): `xterm.js` + WebGL terminal viewports, split/tab management, find-in-output, and Terminal Settings tab
 - **`lighterm.hosts`** (`src/plugins/hosts`): Saved SSH host manager viewport & extensible `host:actions` slot
 - **`lighterm.sftp`** (`crates/plugins/sftp`, `src/plugins/sftp`): Multiplexed SFTP directory browser & chunked upload/download viewport
-- **`lighterm.monitor`** (`crates/plugins/monitor`, `src/plugins/monitor`): Real-time local & remote SSH CPU, memory, network, disk, and process telemetry viewport
+- **`lighterm.monitor`** (`crates/plugins/monitor`, `src/plugins/monitor`): Real-time local & remote SSH CPU, memory, network, disk, and process telemetry with tear-off modular viewports (`monitor.panel`, `monitor.host`, `monitor.cpu`, `monitor.memory`, `monitor.network`, `monitor.disks`, `monitor.processes`) that can be dragged into independent drawer, split, or floating viewports
 - **`lighterm.snippets`** (`crates/plugins/snippets`, `src/plugins/snippets`): Reusable command templates with `{{variable}}` prompts
 - **`lighterm.history`** (`crates/plugins/history`, `src/plugins/history`): Searchable deduplicated command history subscribed directly to `core:shell` I/O streams
 

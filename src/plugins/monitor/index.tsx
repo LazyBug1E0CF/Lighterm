@@ -6,19 +6,27 @@ import { matchesShortcut } from '../../utils/shortcuts';
 import {
   DEFAULT_MONITOR_CONFIG,
   DEFAULT_MONITOR_PANELS,
+  getMonitorPanelViewportType,
   MONITOR_PANEL_CATALOG,
+  MONITOR_PROCESSES_VIEWPORT_TYPE,
   monitorPanelService,
   useMonitorPanelStore,
   type MonitorPanelId,
   type MonitorPluginConfig,
 } from './monitorPanelStore';
 import { MonitorSettingsPage } from './MonitorSettingsPage';
-import { MonitorViewport } from './MonitorViewport';
+import {
+  createMonitorSinglePanelViewport,
+  MonitorViewport,
+  PANEL_ICON_MAP,
+} from './MonitorViewport';
 
 export {
   DEFAULT_MONITOR_CONFIG,
   DEFAULT_MONITOR_PANELS,
+  getMonitorPanelViewportType,
   MONITOR_PANEL_CATALOG,
+  MONITOR_PROCESSES_VIEWPORT_TYPE,
   monitorPanelService,
   useMonitorPanelStore,
   type MonitorPanelId,
@@ -31,7 +39,8 @@ export const monitorPlugin = definePlugin({
   id: 'lighterm.monitor',
   name: 'System Status Panel',
   version: '1.0.0',
-  description: 'Real-time CPU, memory, network, disk, and process monitor viewport',
+  description:
+    'Real-time CPU, memory, network, disk, and process monitor with detachable modular viewports',
   icon: Activity,
   author: 'Lighterm',
   inject: ['core:shell', 'core:layout'],
@@ -52,6 +61,22 @@ export const monitorPlugin = definePlugin({
       order: 10,
       component: MonitorViewport,
     });
+
+    for (const meta of MONITOR_PANEL_CATALOG) {
+      ctx.registerViewport({
+        typeId: meta.viewportTypeId,
+        title: meta.title,
+        icon: PANEL_ICON_MAP[meta.id],
+        defaultPosition: meta.defaultPosition,
+        defaultDockRatio: meta.defaultDockRatio,
+        defaultFloatSize: meta.defaultFloatSize,
+        singleton: true,
+        openOnStartup: false,
+        activateOnStartup: false,
+        order: meta.order,
+        component: createMonitorSinglePanelViewport(meta.id),
+      });
+    }
 
     ctx.registerSettingsPage({
       id: 'monitor',

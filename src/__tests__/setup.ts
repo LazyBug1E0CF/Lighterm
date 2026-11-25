@@ -5,6 +5,20 @@ afterEach(() => {
   cleanup();
 });
 
+if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
+  class PointerEventPolyfill extends MouseEvent {
+    pointerId: number;
+    pointerType: string;
+    constructor(type: string, params: PointerEventInit = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 1;
+      this.pointerType = params.pointerType ?? 'mouse';
+    }
+  }
+  window.PointerEvent = PointerEventPolyfill as unknown as typeof PointerEvent;
+  globalThis.PointerEvent = PointerEventPolyfill as unknown as typeof PointerEvent;
+}
+
 if (typeof window !== 'undefined') {
   if (!window.matchMedia) {
     Object.defineProperty(window, 'matchMedia', {

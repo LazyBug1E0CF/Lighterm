@@ -62,9 +62,31 @@ export type SnapTarget =
   | { kind: 'edge'; edge: DockEdge }
   | { kind: 'group'; groupId: string; zone: DockZone };
 
+export interface TearOffViewportSpec {
+  typeId: string;
+  pluginId?: string;
+  title?: string;
+  params?: Record<string, unknown>;
+  dockRatio?: number;
+  floatRect?: Partial<FloatingRect>;
+  originViewportId?: string;
+  onCommit?: (viewport: ViewportInstance) => void;
+  onCancel?: () => void;
+}
+
+export interface StartTearOffDragOptions extends TearOffViewportSpec {
+  startX: number;
+  startY: number;
+  currentX?: number;
+  currentY?: number;
+  floatOffsetX?: number;
+  floatOffsetY?: number;
+  active?: boolean;
+}
+
 export interface ViewportDragState {
   viewportId: string;
-  source: 'docked' | 'floating' | 'drawer';
+  source: 'docked' | 'floating' | 'drawer' | 'tear-off';
   startX: number;
   startY: number;
   currentX: number;
@@ -73,6 +95,7 @@ export interface ViewportDragState {
   floatOffsetX: number;
   floatOffsetY: number;
   snapTarget: SnapTarget | null;
+  tearOff?: TearOffViewportSpec;
 }
 
 export interface OpenViewportOptions {

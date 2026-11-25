@@ -250,6 +250,11 @@ export const WorkspaceCanvas: React.FC = () => {
       return;
     }
 
+    const hitMatchesPoint = (el: HTMLElement, x: number, y: number): boolean => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    };
+
     const resolveDropTarget = (
       x: number,
       y: number,
@@ -282,6 +287,54 @@ export const WorkspaceCanvas: React.FC = () => {
         }
       }
 
+      if (!snap && canvasRootRef.current) {
+        const compassTargets =
+          canvasRootRef.current.querySelectorAll<HTMLElement>('[data-drop-group][data-drop-zone]');
+        for (const el of compassTargets) {
+          if (hitMatchesPoint(el, x, y) && el.dataset.dropGroup && el.dataset.dropZone) {
+            snap = {
+              kind: 'group',
+              groupId: el.dataset.dropGroup,
+              zone: el.dataset.dropZone as DockZone,
+            };
+            break;
+          }
+        }
+      }
+
+      if (!snap && canvasRootRef.current) {
+        const edgeTargets = canvasRootRef.current.querySelectorAll<HTMLElement>('[data-drop-edge]');
+        for (const el of edgeTargets) {
+          if (hitMatchesPoint(el, x, y) && el.dataset.dropEdge) {
+            snap = { kind: 'edge', edge: el.dataset.dropEdge as DockEdge };
+            break;
+          }
+        }
+      }
+
+      if (!snap && canvasRootRef.current) {
+        const railTargets = canvasRootRef.current.querySelectorAll<HTMLElement>(
+          '[data-activity-rail][data-drop-drawer]',
+        );
+        for (const el of railTargets) {
+          if (hitMatchesPoint(el, x, y) && el.dataset.dropDrawer) {
+            snap = { kind: 'drawer', side: el.dataset.dropDrawer as DrawerSide };
+            break;
+          }
+        }
+      }
+
+      if (!snap && canvasRootRef.current) {
+        const drawerTargets =
+          canvasRootRef.current.querySelectorAll<HTMLElement>('[data-drop-drawer]');
+        for (const el of drawerTargets) {
+          if (hitMatchesPoint(el, x, y) && el.dataset.dropDrawer) {
+            snap = { kind: 'drawer', side: el.dataset.dropDrawer as DrawerSide };
+            break;
+          }
+        }
+      }
+
       if (!groupId && workspaceRef.current) {
         const groups = workspaceRef.current.querySelectorAll<HTMLElement>('[data-group-container]');
         for (const grpEl of groups) {
@@ -295,6 +348,13 @@ export const WorkspaceCanvas: React.FC = () => {
 
       return { snap, groupId };
     };
+
+    const initialDrag = useLayoutStore.getState().dragState;
+    if (initialDrag?.active) {
+      const { snap, groupId } = resolveDropTarget(initialDrag.currentX, initialDrag.currentY);
+      setHoveredGroupId(groupId);
+      layoutService.updateDrag(initialDrag.currentX, initialDrag.currentY, snap);
+    }
 
     const onMove = (ev: PointerEvent) => {
       const { snap, groupId } = resolveDropTarget(ev.clientX, ev.clientY);
@@ -509,10 +569,14 @@ export const WorkspaceCanvas: React.FC = () => {
       {/* Global Drag Ghost Pill */}
       {dragState?.active && (
         <div
+          data-drag-ghost-pill="true"
           style={{ left: dragState.currentX + 12, top: dragState.currentY + 12 }}
           className="fixed z-50 pointer-events-none px-2.5 py-1 rounded-md border border-[var(--accent)] bg-[var(--bg-elevated)]/95 text-xs text-[var(--text-primary)] shadow-lg"
         >
-          {viewports[dragState.viewportId]?.title ?? 'Viewport'}
+          {dragState.tearOff?.title ??
+            (dragState.tearOff ? descriptors[dragState.tearOff.typeId]?.title : undefined) ??
+            viewports[dragState.viewportId]?.title ??
+            'Viewport'}
         </div>
       )}
     </div>

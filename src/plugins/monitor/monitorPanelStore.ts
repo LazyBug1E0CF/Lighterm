@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import { writeLs } from '../../core/ipc';
+import type { ViewportPosition } from '../../harness/types';
 
 export const LS_MONITOR_PANELS = 'lighterm:monitor-panels';
+export const MONITOR_PROCESSES_VIEWPORT_TYPE = 'monitor.processes';
 
 export interface MonitorPluginConfig extends Record<string, unknown> {
   pollIntervalMs: number;
@@ -15,42 +17,78 @@ export const DEFAULT_MONITOR_CONFIG: MonitorPluginConfig = {
 
 export type MonitorPanelId = 'host' | 'cpu' | 'memory' | 'network' | 'disks' | 'processes';
 
+export type MonitorPanelViewportType = `monitor.${MonitorPanelId}`;
+
+export function getMonitorPanelViewportType(id: MonitorPanelId): MonitorPanelViewportType {
+  return `monitor.${id}`;
+}
+
 export interface MonitorPanelMeta {
   id: MonitorPanelId;
+  viewportTypeId: MonitorPanelViewportType;
   title: string;
   description: string;
+  defaultPosition: ViewportPosition;
+  defaultDockRatio?: number;
+  defaultFloatSize: { width: number; height: number };
+  order: number;
 }
 
 export const MONITOR_PANEL_CATALOG: readonly MonitorPanelMeta[] = [
   {
     id: 'host',
+    viewportTypeId: 'monitor.host',
     title: 'Host Overview',
     description: 'Hostname, OS, kernel, uptime & load',
+    defaultPosition: 'right-drawer',
+    defaultFloatSize: { width: 320, height: 220 },
+    order: 11,
   },
   {
     id: 'cpu',
+    viewportTypeId: 'monitor.cpu',
     title: 'CPU',
     description: 'Core count, usage meter & sparkline',
+    defaultPosition: 'right-drawer',
+    defaultFloatSize: { width: 320, height: 210 },
+    order: 12,
   },
   {
     id: 'memory',
+    viewportTypeId: 'monitor.memory',
     title: 'Memory & Swap',
     description: 'RAM and swap utilization',
+    defaultPosition: 'right-drawer',
+    defaultFloatSize: { width: 320, height: 230 },
+    order: 13,
   },
   {
     id: 'network',
+    viewportTypeId: 'monitor.network',
     title: 'Network',
     description: 'Live RX/TX throughput & totals',
+    defaultPosition: 'right-drawer',
+    defaultFloatSize: { width: 320, height: 220 },
+    order: 14,
   },
   {
     id: 'disks',
+    viewportTypeId: 'monitor.disks',
     title: 'Disks',
     description: 'Mounted filesystems & capacity',
+    defaultPosition: 'right-drawer',
+    defaultFloatSize: { width: 340, height: 250 },
+    order: 15,
   },
   {
     id: 'processes',
+    viewportTypeId: 'monitor.processes',
     title: 'Top Processes',
     description: 'Highest CPU & memory processes',
+    defaultPosition: 'right-drawer',
+    defaultDockRatio: 0.68,
+    defaultFloatSize: { width: 420, height: 340 },
+    order: 16,
   },
 ];
 

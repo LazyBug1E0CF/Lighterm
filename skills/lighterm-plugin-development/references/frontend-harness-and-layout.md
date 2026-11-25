@@ -87,15 +87,19 @@ export interface ViewportComponentProps {
 }
 ```
 
-- `typeId`: Must be unique across all active plugins (`HarnessKernel` throws if another active plugin owns the same `typeId`).
+- `typeId`: Must be globally unique across all viewports (registering duplicate `typeId`s across plugins or twice inside the same plugin throws). A single plugin can register **multiple viewports** by calling `ctx.registerViewport(...)` multiple times with distinct `typeId`s, `component`s, and `defaultPosition`s.
 - `defaultPosition`: **Required** (legacy alias `defaultDock` is accepted and kept synchronized, but always write `defaultPosition` in new plugins).
 - `defaultDockRatio?`: Optional split ratio (`0.1`–`0.9`) for edge positions (`bottom`, `top`, `left`, `right`). For `'bottom'`, `0.68` allocates 68% height above and 32% below. For `'left'`/`'top'`, it sets the size ratio of the newly docked edge.
 - `defaultFloatSize?`: `{ width: number; height: number }`, used when `defaultPosition === 'float'` and whenever a user drags the viewport out into floating mode.
 - `singleton?`: Set `true` for panel plugins (focus/toggle one instance), `false` for multi-instance viewports (tabs/split panes).
 - `openOnStartup?`: When `true` and `singleton !== false`, `mountStartupPluginViewports()` mounts the viewport on clean launch AND when the user enables the plugin dynamically in Plugin Manager (`onPluginActivated`).
 - `activateOnStartup?`: When `true` inside `'left-drawer'` or `'right-drawer'` during startup mounting, activates that drawer tab and opens the drawer.
-- `order?`: Sort priority within shared areas (`left-drawer`, `right-drawer`, `Reset Layout`), default `100` (lower first).
+- `order?`: Sort priority within shared areas (`left-drawer`, `right-drawer`, `Reset Layout`, multi-viewport lists), default `100` (lower first).
 - `onClose?`: Callback fired after viewport closure; use to release backing resources (e.g., closing a linked shell session).
+
+### Multi-Viewport Plugins & Sub-Panel Tear-Off
+- **Plugin Manager & Activity Rail Integration**: When a plugin registers multiple viewports, `harnessKernel.getPluginViewportDescriptors(pluginId)` returns all of them sorted by `order`, SideDrawer's `+` menu lists each viewport separately, and `PluginManagerModal` renders per-viewport `Left` / `Right` / `Bottom` / `Float` / `Open` controls.
+- **Reference Implementation (`lighterm.monitor`)**: Registers both the aggregate dashboard `monitor.panel` (`openOnStartup: true`) and 6 modular sub-viewports (`monitor.host`, `monitor.cpu`, `monitor.memory`, `monitor.network`, `monitor.disks`, `monitor.processes`, `openOnStartup: false`). Any card can be dragged onto the Left/Right Activity Rail, Edge Split, Dock Compass, or open workspace to detach into an independent viewport, or merged back via `Return <Title> to System Status`.
 
 ### Preserved Bottom/Edge Split Behavior
 When a `'center'` viewport (such as a terminal) opens while `dockRoot` contains only a single group of edge-docked plugin viewports (e.g., `sftp.browser` at `'bottom'`), `LayoutService.openViewport` automatically splits relative to that edge using `firstDesc?.defaultDockRatio` instead of tab-merging into the bottom panel.
@@ -104,6 +108,8 @@ When a `'center'` viewport (such as a terminal) opens while `dockRoot` contains 
 - `toggleSingletonViewport({ typeId, ...overrides })`: Opens at `defaultPosition` if absent; toggles drawer collapse or closes workspace panel if already visible; re-docks if detached.
 - `openPluginViewport(typeId, opts?)`: Opens or focuses a viewport using its registered `ViewportDescriptor` defaults (`defaultPosition`, `defaultDockRatio`, `defaultFloatSize`).
 - `openViewport(opts)`: Explicit lower-level viewport creation with custom `preferredDock`, `dockRatio`, `targetGroupId`, `splitZone`, or `floatRect`.
+- `detachToViewport(spec)`: Programmatically opens or focuses a tear-off viewport at `spec.preferredDock` (defaulting to the descriptor's `defaultPosition`) and invokes `spec.onCommit(viewport)`.
+- `startTearOffDrag(opts)`: Transitions an internal card/sub-panel pointer drag into a global cross-layout viewport drag (`source: 'tear-off'`). `WorkspaceCanvas` snaps against `[data-activity-rail]` / `[data-drop-drawer]`, `[data-drop-edge]`, `[data-drop-group][data-drop-zone]`, or falls back to floating on drop, then invokes `opts.onCommit(viewport)`.
 - `closeViewport(viewportId)`: Closes an open viewport instance and triggers `descriptor.onClose`.
 - `findViewportsByType(typeId)` / `findWorkspaceViewportsByType(typeId)`
 - `getViewportLocation(viewportId)`: Returns `'left-drawer' | 'right-drawer' | 'docked' | 'floating' | null`.

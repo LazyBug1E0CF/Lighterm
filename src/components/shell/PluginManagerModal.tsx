@@ -16,6 +16,7 @@ import {
   usePluginStatuses,
   useViewportDescriptors,
   VIEWPORT_POSITION_LABELS,
+  type ViewportDescriptor,
 } from '../../harness';
 import { layoutService, useLayoutStore } from '../../layout/layoutStore';
 
@@ -32,9 +33,7 @@ export const PluginManagerModal: React.FC = () => {
 
   if (!open) return null;
 
-  const openPluginViewport = (pluginId: string) => {
-    const desc = Object.values(descriptors).find((d) => d.pluginId === pluginId);
-    if (!desc) return;
+  const openDescriptorViewport = (desc: ViewportDescriptor) => {
     if (desc.typeId === 'terminal.viewport') {
       void shellService.createLocalSession();
     } else {
@@ -43,9 +42,7 @@ export const PluginManagerModal: React.FC = () => {
     shellService.setPluginManagerOpen(false);
   };
 
-  const dockPluginToDrawer = (pluginId: string, side: 'left' | 'right') => {
-    const desc = Object.values(descriptors).find((d) => d.pluginId === pluginId);
-    if (!desc) return;
+  const dockDescriptorToDrawer = (desc: ViewportDescriptor, side: 'left' | 'right') => {
     if (desc.singleton) {
       const existing = layoutService.findViewportsByType(desc.typeId)[0];
       if (existing) {
@@ -71,9 +68,7 @@ export const PluginManagerModal: React.FC = () => {
     shellService.setPluginManagerOpen(false);
   };
 
-  const dockPluginToBottom = (pluginId: string) => {
-    const desc = Object.values(descriptors).find((d) => d.pluginId === pluginId);
-    if (!desc) return;
+  const dockDescriptorToBottom = (desc: ViewportDescriptor) => {
     if (desc.singleton) {
       const existing = layoutService.findViewportsByType(desc.typeId)[0];
       if (existing) {
@@ -102,6 +97,40 @@ export const PluginManagerModal: React.FC = () => {
         title: desc.title,
         preferredDock: 'bottom',
         dockRatio: desc.defaultDockRatio,
+      });
+    }
+    shellService.setPluginManagerOpen(false);
+  };
+
+  const floatDescriptorViewport = (desc: ViewportDescriptor) => {
+    if (desc.singleton) {
+      const existing = layoutService.findViewportsByType(desc.typeId)[0];
+      if (existing) {
+        layoutService.floatViewport(existing.id, desc.defaultFloatSize);
+      } else {
+        layoutService.openViewport({
+          typeId: desc.typeId,
+          pluginId: desc.pluginId,
+          title: desc.title,
+          preferredDock: 'float',
+          floatRect: desc.defaultFloatSize,
+        });
+      }
+    } else if (desc.typeId === 'terminal.viewport') {
+      void shellService.createLocalSession().then((info) => {
+        if (!info) return;
+        const vp = layoutService
+          .findViewportsByType('terminal.viewport')
+          .find((v) => String(v.params?.sessionId ?? '') === info.id);
+        if (vp) layoutService.floatViewport(vp.id, desc.defaultFloatSize);
+      });
+    } else {
+      layoutService.openViewport({
+        typeId: desc.typeId,
+        pluginId: desc.pluginId,
+        title: desc.title,
+        preferredDock: 'float',
+        floatRect: desc.defaultFloatSize,
       });
     }
     shellService.setPluginManagerOpen(false);
@@ -166,9 +195,10 @@ export const PluginManagerModal: React.FC = () => {
               const vpCount = Object.values(viewports).filter(
                 (v) => v.pluginId === plugin.id,
               ).length;
-              const primaryDesc = Object.values(descriptors).find(
-                (d) => d.pluginId === plugin.id,
-              );
+              const pluginDescriptors = Object.values(descriptors)
+                .filter((d) => d.pluginId === plugin.id)
+                .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
+              const primaryDesc = pluginDescriptors[0];
               const hasViewport = Boolean(primaryDesc);
               const settingsPage = settingsPages.find((p) => p.pluginId === plugin.id);
 
@@ -207,6 +237,11 @@ export const PluginManagerModal: React.FC = () => {
                             Default: {VIEWPORT_POSITION_LABELS[primaryDesc.defaultPosition]}
                           </span>
                         )}
+                        {plugin.active && pluginDescriptors.length > 1 && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--accent)]/15 text-[var(--accent)]">
+                            {pluginDescriptors.length} Viewports
+                          </span>
+                        )}
                       </div>
                       <p className="mt-1 text-[11px] text-[var(--text-muted)]">
                         {plugin.description}
@@ -214,11 +249,11 @@ export const PluginManagerModal: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
-                      {plugin.active && hasViewport && (
+                      {plugin.active && primaryDesc && (
                         <>
                           <button
                             type="button"
-                            onClick={() => dockPluginToDrawer(plugin.id, 'left')}
+                            onClick={() => dockDescriptorToDrawer(primaryDesc, 'left')}
                             title="Add / Move Viewport to Left Drawer"
                             aria-label={`Left Drawer ${plugin.name}`}
                             className="h-7 px-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
@@ -228,7 +263,7 @@ export const PluginManagerModal: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => dockPluginToDrawer(plugin.id, 'right')}
+                            onClick={() => dockDescriptorToDrawer(primaryDesc, 'right')}
                             title="Add / Move Viewport to Right Drawer"
                             aria-label={`Right Drawer ${plugin.name}`}
                             className="h-7 px-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
@@ -238,7 +273,7 @@ export const PluginManagerModal: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => dockPluginToBottom(plugin.id)}
+                            onClick={() => dockDescriptorToBottom(primaryDesc)}
                             title="Dock Viewport to Bottom Panel"
                             aria-label={`Bottom Dock ${plugin.name}`}
                             className="h-7 px-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
@@ -248,7 +283,7 @@ export const PluginManagerModal: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => openPluginViewport(plugin.id)}
+                            onClick={() => openDescriptorViewport(primaryDesc)}
                             className="h-7 px-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
                           >
                             <Layers className="w-3 h-3" />
@@ -298,6 +333,87 @@ export const PluginManagerModal: React.FC = () => {
                       )}
                     </div>
                   </div>
+
+                  {plugin.active && hasViewport && pluginDescriptors.length > 1 && (
+                    <div
+                      data-plugin-viewports={plugin.id}
+                      className="pt-2 border-t border-[var(--border-subtle)]/60 space-y-1.5"
+                    >
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                        Plugin Viewports ({pluginDescriptors.length})
+                      </div>
+                      <div className="grid grid-cols-1 gap-1">
+                        {pluginDescriptors.map((desc) => {
+                          const Icon = desc.icon;
+                          const instances = Object.values(viewports).filter(
+                            (v) => v.typeId === desc.typeId,
+                          );
+                          return (
+                            <div
+                              key={desc.typeId}
+                              data-plugin-viewport-row={desc.typeId}
+                              className="px-2 py-1.5 rounded border border-[var(--border-subtle)]/70 bg-[var(--bg-surface)]/70 flex items-center justify-between gap-2"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <Icon className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                                <span className="font-medium text-[var(--text-primary)] truncate">
+                                  {desc.title}
+                                </span>
+                                <code className="text-[10px] font-mono text-[var(--text-muted)]">
+                                  {desc.typeId}
+                                </code>
+                                <span className="px-1 py-0 rounded bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] shrink-0">
+                                  Default: {VIEWPORT_POSITION_LABELS[desc.defaultPosition]}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  aria-label={`Left Drawer Viewport ${desc.title}`}
+                                  onClick={() => dockDescriptorToDrawer(desc, 'left')}
+                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                >
+                                  Left
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Right Drawer Viewport ${desc.title}`}
+                                  onClick={() => dockDescriptorToDrawer(desc, 'right')}
+                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                >
+                                  Right
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Bottom Dock Viewport ${desc.title}`}
+                                  onClick={() => dockDescriptorToBottom(desc)}
+                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                >
+                                  Bottom
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Float Viewport ${desc.title}`}
+                                  onClick={() => floatDescriptorViewport(desc)}
+                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                >
+                                  Float
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Open Viewport ${desc.title}`}
+                                  onClick={() => openDescriptorViewport(desc)}
+                                  className="h-6 px-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-primary)] hover:border-[var(--accent)]"
+                                >
+                                  {instances.length > 0 ? `Focus (${instances.length})` : 'Open'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-2 flex-wrap text-[10px]">
                     {plugin.inject.length > 0 && (

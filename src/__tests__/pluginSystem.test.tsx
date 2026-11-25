@@ -1,5 +1,5 @@
 import React from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Puzzle } from 'lucide-react';
 import { App } from '../App';
@@ -15,7 +15,7 @@ import { collectGroups, findGroupContainingViewport } from '../layout/dockTree';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import { bootstrapLightermHarness, resetLightermHarnessForTesting } from '../plugins';
 import { HOSTS_VIEWPORT_TYPE } from '../plugins/hosts';
-import { MONITOR_VIEWPORT_TYPE } from '../plugins/monitor';
+import { MONITOR_VIEWPORT_TYPE, useMonitorPanelStore } from '../plugins/monitor';
 import { useSftpPluginStore } from '../plugins/sftp/sftpClient';
 
 const DummyViewport: React.FC<ViewportComponentProps> = ({ viewport }) => (
@@ -418,5 +418,189 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
     expect(
       within(deepLinkedHistoryPanel!).queryByLabelText('Max History Entries Displayed'),
     ).toBeNull();
+  }, 15000);
+
+  it('supports multi-viewport plugins and dragging Top Processes out of System Status into Right Drawer and other positions', async () => {
+    const { container } = render(<App />);
+
+    await waitFor(() => {
+      expect(useShellStore.getState().initialized).toBe(true);
+      expect(harnessKernel.isPluginActive('lighterm.monitor')).toBe(true);
+    });
+
+    expect(await screen.findByText('lighterm-local')).toBeTruthy();
+
+    // System Status registers 7 distinct viewports (main dashboard + 6 telemetry sub-viewports)
+    const monitorDescriptors = harnessKernel.getPluginViewportDescriptors('lighterm.monitor');
+    expect(monitorDescriptors.map((d) => d.typeId)).toEqual([
+      'monitor.panel',
+      'monitor.host',
+      'monitor.cpu',
+      'monitor.memory',
+      'monitor.network',
+      'monitor.disks',
+      'monitor.processes',
+    ]);
+
+    // Plugin Manager lists multi-viewport badge and every sub-viewport for lighterm.monitor
+    fireEvent.click(screen.getByLabelText('Manage Plugins'));
+    const pluginModal = await screen.findByRole('dialog', { name: 'Plugin Manager' });
+    const monitorCard = pluginModal.querySelector('[data-plugin-card="lighterm.monitor"]') as HTMLElement;
+    expect(within(monitorCard).getByText('7 Viewports')).toBeTruthy();
+    const monitorVpList = monitorCard.querySelector('[data-plugin-viewports="lighterm.monitor"]') as HTMLElement;
+    expect(monitorVpList).toBeTruthy();
+    expect(within(monitorVpList).getByLabelText('Right Drawer Viewport Top Processes')).toBeTruthy();
+    fireEvent.click(within(pluginModal).getByLabelText('Close Plugin Manager'));
+
+    // Mock bounding rects & elementsFromPoint (with ancestor data-drop-drawer) to mirror real browser hit-testing
+    const monitorAside = screen.getByLabelText('System Status Panel');
+    const rightDrawerBox = container.querySelector('[data-drawer-side="right"]') as HTMLElement;
+    const rightRail = container.querySelector('[data-activity-rail="right"]') as HTMLElement;
+    expect(rightDrawerBox).toBeTruthy();
+    expect(rightRail).toBeTruthy();
+
+    monitorAside.getBoundingClientRect = () =>
+      ({
+        left: 900,
+        top: 80,
+        right: 1150,
+        bottom: 720,
+        width: 250,
+        height: 640,
+        x: 900,
+        y: 80,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    rightRail.getBoundingClientRect = () =>
+      ({
+        left: 1156,
+        top: 40,
+        right: 1200,
+        bottom: 740,
+        width: 44,
+        height: 700,
+        x: 1156,
+        y: 40,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    const cards = Array.from(monitorAside.querySelectorAll<HTMLElement>('[data-monitor-panel-id]'));
+    cards.forEach((card, idx) => {
+      const top = 120 + idx * 96;
+      card.getBoundingClientRect = () =>
+        ({
+          left: 910,
+          top,
+          right: 1140,
+          bottom: top + 84,
+          width: 230,
+          height: 84,
+          x: 910,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect;
+    });
+
+    const origElementsFromPoint = document.elementsFromPoint;
+    document.elementsFromPoint = vi.fn((x: number, y: number) => {
+      if (x >= 900 && x <= 1150 && y >= 80 && y <= 720) {
+        return [monitorAside, rightDrawerBox, document.body];
+      }
+      if (x >= 1156 && x <= 1200 && y >= 40 && y <= 740) {
+        return [rightRail, document.body];
+      }
+      return [document.body];
+    });
+
+    try {
+      // 1) Internal reorder inside System Status continues to work untouched even when ancestor has data-drop-drawer
+      const hostDragHandle = screen.getByLabelText('Drag to reorder Host Overview Panel');
+      fireEvent.pointerDown(hostDragHandle, { button: 0, clientX: 960, clientY: 140 });
+      fireEvent.pointerMove(window, { clientX: 960, clientY: 340 });
+
+      expect(monitorAside.querySelector('[data-monitor-drag-ghost="host"]')).toBeTruthy();
+      expect(container.querySelector('[data-drag-ghost-pill="true"]')).toBeNull();
+      expect(useLayoutStore.getState().dragState).toBeNull();
+
+      fireEvent.pointerUp(window, { clientX: 960, clientY: 340 });
+      expect(useMonitorPanelStore.getState().panels).toEqual([
+        'cpu',
+        'memory',
+        'host',
+        'network',
+        'disks',
+        'processes',
+      ]);
+      expect(layoutService.findViewportsByType('monitor.host')).toHaveLength(0);
+
+      // 2) Dragging outside into workspace and back inside System Status cancels external tear-off cleanly
+      const procDragHandleReversible = screen.getByLabelText('Drag to reorder Top Processes Panel');
+      fireEvent.pointerDown(procDragHandleReversible, { button: 0, clientX: 980, clientY: 610 });
+      fireEvent.pointerMove(window, { clientX: 700, clientY: 300 });
+      expect(useLayoutStore.getState().dragState?.source).toBe('tear-off');
+
+      fireEvent.pointerMove(window, { clientX: 980, clientY: 590 });
+      expect(useLayoutStore.getState().dragState).toBeNull();
+      fireEvent.pointerUp(window, { clientX: 980, clientY: 590 });
+      expect(layoutService.findViewportsByType('monitor.processes')).toHaveLength(0);
+      expect(useMonitorPanelStore.getState().panels).toContain('processes');
+
+      // 3) Dragging "Top Processes" out of System Status onto Right Activity Rail tears it off into Right Drawer
+      const procDragHandle = screen.getByLabelText('Drag to reorder Top Processes Panel');
+      fireEvent.pointerDown(procDragHandle, { button: 0, clientX: 980, clientY: 610 });
+      fireEvent.pointerMove(window, { clientX: 1175, clientY: 200 });
+
+      await waitFor(() => {
+        const ghostPill = container.querySelector('[data-drag-ghost-pill="true"]');
+        expect(ghostPill?.textContent).toContain('Top Processes');
+        expect(monitorAside.querySelector('[data-monitor-drag-ghost="processes"]')).toBeNull();
+      });
+
+      fireEvent.pointerUp(window, { clientX: 1175, clientY: 200 });
+    } finally {
+      document.elementsFromPoint = origElementsFromPoint;
+    }
+
+    // Top Processes is now an independent viewport in the Right Drawer, removed from System Status card list
+    const rightDrawerAside = screen.getByLabelText('Right Side Drawer');
+    await waitFor(() => {
+      expect(within(rightDrawerAside).getByLabelText('Switch to Top Processes')).toBeTruthy();
+      expect(screen.getByLabelText('Top Processes Viewport')).toBeTruthy();
+    });
+
+    const procViewports = layoutService.findViewportsByType('monitor.processes');
+    expect(procViewports).toHaveLength(1);
+    const procVp = procViewports[0];
+    expect(layoutService.getViewportLocation(procVp.id)).toBe('right-drawer');
+    expect(useLayoutStore.getState().rightDrawer.activeViewportId).toBe(procVp.id);
+
+    // Same plugin's viewports display different content with different display modes simultaneously:
+    // Move Top Processes to bottom split while System Status stays in right-drawer and CPU floats
+    act(() => {
+      layoutService.dockToEdge(procVp.id, 'bottom', 0.68);
+      layoutService.openPluginViewport('monitor.cpu', { preferredDock: 'float' });
+    });
+
+    const monitorVp = layoutService.findViewportsByType(MONITOR_VIEWPORT_TYPE)[0];
+    const cpuVp = layoutService.findViewportsByType('monitor.cpu')[0];
+    expect(layoutService.getViewportLocation(monitorVp.id)).toBe('right-drawer');
+    expect(layoutService.getViewportLocation(procVp.id)).toBe('docked');
+    expect(layoutService.getViewportLocation(cpuVp.id)).toBe('floating');
+
+    expect(screen.getByLabelText('System Status Panel')).toBeTruthy();
+    expect(screen.getByLabelText('Top Processes Viewport')).toBeTruthy();
+    expect(screen.getByLabelText('CPU Viewport')).toBeTruthy();
+
+    // Returning Top Processes merges it back into System Status and closes the standalone viewport
+    fireEvent.click(screen.getByLabelText('Return Top Processes to System Status'));
+    await waitFor(() => {
+      expect(layoutService.findViewportsByType('monitor.processes')).toHaveLength(0);
+      expect(screen.queryByLabelText('Top Processes Viewport')).toBeNull();
+    });
+
+    expect(useLayoutStore.getState().rightDrawer.open).toBe(true);
+    expect(useLayoutStore.getState().rightDrawer.activeViewportId).toBe(monitorVp.id);
+    expect(await screen.findByLabelText('Top Processes Status Panel')).toBeTruthy();
   }, 15000);
 });

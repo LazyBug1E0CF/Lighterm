@@ -531,7 +531,7 @@ export class HarnessKernel {
           throw new Error(`Plugin '${pluginId}' cannot register viewport with empty typeId`);
         }
         const existing = this.viewports.get(typeId);
-        if (existing && existing.pluginId !== pluginId) {
+        if (existing) {
           throw new Error(
             `Viewport typeId '${typeId}' is already registered by plugin '${existing.pluginId}'`,
           );
@@ -825,6 +825,12 @@ export class HarnessKernel {
 
   getViewportDescriptors(): ViewportDescriptor[] {
     return Array.from(this.viewports.values());
+  }
+
+  getPluginViewportDescriptors(pluginId: string): ViewportDescriptor[] {
+    return Array.from(this.viewports.values())
+      .filter((desc) => desc.pluginId === pluginId)
+      .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
   }
 
   getSettingsPages(): PluginSettingsPageDescriptor[] {

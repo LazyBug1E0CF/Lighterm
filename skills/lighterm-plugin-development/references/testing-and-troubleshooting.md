@@ -45,6 +45,10 @@ describe('acme.my-plugin', () => {
 });
 ```
 
+### Multi-Viewport & Tear-Off Drag Integration Pattern
+- Assert all plugin viewports via `harnessKernel.getPluginViewportDescriptors(pluginId)` and inspect per-viewport controls under `[data-plugin-viewports="<pluginId>"]` in `PluginManagerModal`.
+- To test tearing a sub-card out into the Left/Right Drawer in jsdom (`WorkspaceCanvas`), mock `getBoundingClientRect()` on the source viewport panel and target `[data-activity-rail="right"]` (so `shouldTearOffPanel` and `WorkspaceCanvas`'s bounding-rect fallback resolve the drop target), then fire `pointerDown` -> `pointerMove` -> `pointerUp` and verify both `layoutService.getViewportLocation(...)` and `onCommit` side effects.
+
 ### Standard Settings UI & Disable/Re-enable Test (`render(<App />)`)
 ```tsx
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';

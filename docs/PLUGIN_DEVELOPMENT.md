@@ -153,12 +153,21 @@ ctx.registerViewport({
 | `'center'` | 中央主标签组（Tab Group） | 终端会话、主工作区文档或独占型交互画布 | `terminal.viewport` |
 | `'float'` | 自由拖拽与 8 向缩放悬浮窗 | 临时工具弹窗、独立校验器、多屏浮窗 | 自定义悬浮工具 |
 
-### 4.3 位置调度、打开、切换与布局重置
-- **打开/切换辅助方法**：插件内无需重复编写位置分支判断，直接调用 `layout.toggleSingletonViewport({ typeId })` 或 `layout.openPluginViewport(typeId)`，布局引擎会自动读取注册的 `defaultPosition`、`defaultDockRatio` 与 `defaultFloatSize`。
+### 4.3 多视口插件与子面板拖出（Tear-Off）规范
+
+一个插件可在 `activate(ctx)` 中多次调用 `ctx.registerViewport(...)` 注册**多个不同职责的 GUI 视口**，且每个视口都可以拥有完全不同的内容组件、标题、图标与默认显示位置（`defaultPosition`），并在运行期独立停靠到抽屉、边缘分栏或悬浮窗中：
+- 同一插件内的各个视口须使用全局唯一的 `typeId`（重复注册同一 `typeId` 会抛出异常）；Plugin Manager 会展示每个视口的默认位置与独立打开/停靠控制。
+- 内置范例 `lighterm.monitor` 注册了聚合面板 `monitor.panel` 以及 `monitor.host`、`monitor.cpu`、`monitor.memory`、`monitor.network`、`monitor.disks`、`monitor.processes` 等独立子视口：它们既可以在 `System Status` 内以卡片排序展示，也可独立打开在不同区域同时显示不同内容。
+- **子面板拖出（Tear-Off）标准能力**：当插件内含可独立成窗的子卡片时，可使用 `core:layout` 提供的通用 API：
+  - `layout.startTearOffDrag({ typeId, pluginId, title, params, startX, startY, currentX, currentY, floatRect, dockRatio, onCommit, onCancel })`：当指针拖出源视口边界或进入外部 Activity Rail / 分栏 / 边缘热区时，无缝切换为全局跨区域视口拖拽，支持直接拖入左侧/右侧抽屉（含 Activity Rail）、工作区五向罗盘、四向边缘分栏或松手生成悬浮窗，并在落点确认后触发 `onCommit(viewport)`。
+  - `layout.detachToViewport({ typeId, pluginId, title, preferredDock, onCommit })`：点击卡片上的「独立打开」快捷按钮时，一步创建或聚焦独立视口。
+
+### 4.4 位置调度、打开、切换与布局重置
+- **打开/切换辅助方法**：插件内无需重复编写位置分支判断，直接调用 `layout.toggleSingletonViewport({ typeId })` 或 `layout.openPluginViewport(typeId)`，布局引擎会自动读取注册的 `defaultPosition`、`defaultDockRatio` 与 `defaultFloatSize`；可通过 `harnessKernel.getPluginViewportDescriptors(pluginId)` 查询插件名下全部视口。
 - **布局重置（Reset Layout）**：用户点击顶部 `Reset Layout` 时，`layoutService.resetLayoutPreservingViewports()` 会保留所有当前打开的视口实例，并严格按照每个视口注册的 `defaultPosition` 归位（抽屉视口归位至左右抽屉，底部/边缘视口归位至边缘分栏，悬浮视口归位至浮动层）。
 - **主题样式与拖拽隔离**：
   - 视口样式必须使用全局 CSS 变量（`--bg-app`、`--bg-surface`、`--bg-elevated`、`--border-subtle`、`--text-primary`、`--text-muted`、`--accent`、`--success`、`--warning`、`--danger`），严禁硬编码固定深/浅色 hex 值。
-  - 若视口内部包含可拖拽卡片或可交互按钮，须在 `onPointerDown` 调用 `e.stopPropagation()` 或标记 `data-no-drag="true"`，避免误触发外层视口拖拽。
+  - 若视口内部包含可拖拽卡片或可交互按钮，须在 `onPointerDown` 调用 `e.stopPropagation()` 或标记 `data-no-drag="true"`，避免误触发外层视口拖拽；内部卡片支持拖出时再通过 `startTearOffDrag` 主动接管全局拖拽。
 
 ---
 

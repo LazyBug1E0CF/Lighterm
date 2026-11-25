@@ -444,4 +444,82 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
     expect(kernel.getPluginConfig('acme.alpha', defaults)).toEqual(defaults);
     expect(window.localStorage.getItem('lighterm:plugin-config:acme.alpha')).toBeNull();
   });
+
+  it('supports multiple distinct viewports per plugin, rejects intra-plugin duplicate typeId, and cleans up all on disable', async () => {
+    window.localStorage.clear();
+    const kernel = new HarnessKernel();
+
+    kernel.register(
+      definePlugin({
+        id: 'acme.multi',
+        name: 'Multi Workbench',
+        version: '1.0.0',
+        description: 'Registers main and secondary viewports with different default positions',
+        activate(ctx) {
+          ctx.registerViewport({
+            typeId: 'acme.multi.primary',
+            title: 'Primary Panel',
+            icon: DummyIcon,
+            defaultPosition: 'right-drawer',
+            order: 20,
+            component: DummyComp,
+          });
+          ctx.registerViewport({
+            typeId: 'acme.multi.details',
+            title: 'Details Stream',
+            icon: DummyIcon,
+            defaultPosition: 'bottom',
+            defaultDockRatio: 0.7,
+            order: 10,
+            component: DummyComp,
+          });
+        },
+      }),
+    );
+
+    kernel.register(
+      definePlugin({
+        id: 'acme.intra-dup',
+        name: 'Intra Duplicate',
+        version: '1.0.0',
+        description: 'Attempts to register same viewport typeId twice',
+        activate(ctx) {
+          ctx.registerViewport({
+            typeId: 'acme.dup.one',
+            title: 'First',
+            icon: DummyIcon,
+            defaultPosition: 'bottom',
+            component: DummyComp,
+          });
+          ctx.registerViewport({
+            typeId: 'acme.dup.one',
+            title: 'Second',
+            icon: DummyIcon,
+            defaultPosition: 'float',
+            component: DummyComp,
+          });
+        },
+      }),
+    );
+
+    await kernel.start();
+
+    expect(kernel.isPluginActive('acme.multi')).toBe(true);
+    const list = kernel.getPluginViewportDescriptors('acme.multi');
+    expect(list.map((d) => [d.typeId, d.defaultPosition])).toEqual([
+      ['acme.multi.details', 'bottom'],
+      ['acme.multi.primary', 'right-drawer'],
+    ]);
+
+    expect(kernel.isPluginActive('acme.intra-dup')).toBe(false);
+    expect(kernel.getPluginStatuses().find((p) => p.id === 'acme.intra-dup')?.error).toMatch(
+      /already registered/,
+    );
+    expect(kernel.getViewportDescriptor('acme.dup.one')).toBeUndefined();
+
+    await kernel.disablePlugin('acme.multi');
+    expect(kernel.getPluginViewportDescriptors('acme.multi')).toHaveLength(0);
+    expect(kernel.getViewportDescriptor('acme.multi.primary')).toBeUndefined();
+    expect(kernel.getViewportDescriptor('acme.multi.details')).toBeUndefined();
+  });
 });

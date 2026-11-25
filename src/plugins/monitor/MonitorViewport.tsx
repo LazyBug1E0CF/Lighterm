@@ -8,9 +8,11 @@ import React, {
 } from 'react';
 import {
   ArrowDown,
+  ArrowLeft,
   ArrowUp,
   Check,
   Cpu,
+  ExternalLink,
   HardDrive,
   ListOrdered,
   MemoryStick,
@@ -26,7 +28,9 @@ import {
 } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
 import { usePluginConfig } from '../../harness';
+import { harnessKernel } from '../../harness/HarnessKernel';
 import type { ViewportComponentProps } from '../../harness/types';
+import { layoutService } from '../../layout/layoutStore';
 import type { SystemStats } from '../../types';
 import { fetchSystemStats } from './monitorClient';
 import {
@@ -38,6 +42,7 @@ import {
 import {
   DEFAULT_MONITOR_CONFIG,
   DEFAULT_MONITOR_PANELS,
+  getMonitorPanelViewportType,
   isDefaultPanelOrder,
   MONITOR_PANEL_CATALOG,
   MONITOR_PANEL_META_MAP,
@@ -77,9 +82,10 @@ interface PanelDragState {
   gap: number;
   baseRects: PanelBaseRect[];
   active: boolean;
+  tornOff?: boolean;
 }
 
-const PANEL_ICON_MAP: Record<MonitorPanelId, React.ComponentType<{ className?: string }>> = {
+export const PANEL_ICON_MAP: Record<MonitorPanelId, React.ComponentType<{ className?: string }>> = {
   host: Server,
   cpu: Cpu,
   memory: MemoryStick,
@@ -216,6 +222,7 @@ interface StatusPanelCardProps {
   animateDisplacement?: boolean;
   onHeaderPointerDown: (e: React.PointerEvent) => void;
   onKeyboardReorder: (delta: -1 | 1) => void;
+  onDetach?: () => void;
   onRemove: () => void;
   children: React.ReactNode;
 }
@@ -234,6 +241,7 @@ const StatusPanelCard: React.FC<StatusPanelCardProps> = ({
   animateDisplacement = false,
   onHeaderPointerDown,
   onKeyboardReorder,
+  onDetach,
   onRemove,
   children,
 }) => {
@@ -292,7 +300,7 @@ const StatusPanelCard: React.FC<StatusPanelCardProps> = ({
           role="button"
           tabIndex={0}
           aria-label={`Drag to reorder ${title} Panel`}
-          title="Drag to reorder (or use Up/Down arrows)"
+          title="Drag to reorder or drag outside to open as independent viewport (or use Up/Down arrows)"
           onKeyDown={(e) => {
             if (e.key === 'ArrowUp') {
               e.preventDefault();
@@ -309,8 +317,20 @@ const StatusPanelCard: React.FC<StatusPanelCardProps> = ({
           {headerMeta}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           {headerRight}
+          {onDetach && (
+            <button
+              type="button"
+              data-no-panel-drag="true"
+              onClick={onDetach}
+              title={`Open ${title} as Independent Viewport`}
+              aria-label={`Detach ${title} as Viewport`}
+              className="hidden group-hover:inline-flex focus-visible:inline-flex items-center justify-center p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-elevated)]"
+            >
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          )}
           <button
             type="button"
             data-no-panel-drag="true"
@@ -329,13 +349,12 @@ const StatusPanelCard: React.FC<StatusPanelCardProps> = ({
   );
 };
 
-export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
+function useMonitorTelemetry(paused: boolean, enabled: boolean) {
   const hosts = useShellStore((s) => s.hosts);
   const activeSessionId = useShellStore((s) => s.activeSessionId);
   const activeSession = useShellStore((s) =>
     activeSessionId ? s.sessions[activeSessionId] : undefined,
   );
-  const panels = useMonitorPanelStore((s) => s.panels);
   const { config: monitorConfig } = usePluginConfig(
     'lighterm.monitor',
     DEFAULT_MONITOR_CONFIG,
@@ -345,29 +364,11 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
   const [cpuHistory, setCpuHistory] = useState<number[]>([]);
   const [rxHistory, setRxHistory] = useState<number[]>([]);
   const [txHistory, setTxHistory] = useState<number[]>([]);
-  const [paused, setPaused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [procSort, setProcSort] = useState<'cpu' | 'mem'>(monitorConfig.defaultProcessSort);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const [panelDrag, setPanelDrag] = useState<PanelDragState | null>(null);
-  const [flipSeq, setFlipSeq] = useState(0);
 
   const inFlightRef = useRef(false);
-  const asideRef = useRef<HTMLElement | null>(null);
-  const addMenuRef = useRef<HTMLDivElement | null>(null);
-  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
-  const panelDragRef = useRef<PanelDragState | null>(null);
-  const flipPrevRectsRef = useRef<Map<string, { left: number; top: number; fromGhost?: boolean }>>(
-    new Map(),
-  );
-
-  const hasPanels = panels.length > 0;
-  const missingPanels = useMemo(
-    () => DEFAULT_MONITOR_PANELS.filter((id) => !panels.includes(id)),
-    [panels],
-  );
-  const isDefaultLayout = useMemo(() => isDefaultPanelOrder(panels), [panels]);
 
   const activeHostConfig = useMemo(() => {
     if (!activeSession || activeSession.info.kind !== 'ssh') return undefined;
@@ -426,14 +427,438 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
   }, [monitorConfig.defaultProcessSort]);
 
   useEffect(() => {
-    if (paused || !hasPanels) return;
+    if (paused || !enabled) return;
     const pollMs = Math.max(500, Number(monitorConfig.pollIntervalMs) || POLL_INTERVAL_MS);
     void fetchStats();
     const timer = window.setInterval(() => {
       void fetchStats();
     }, pollMs);
     return () => window.clearInterval(timer);
-  }, [paused, hasPanels, targetKey, fetchStats, monitorConfig.pollIntervalMs]);
+  }, [paused, enabled, targetKey, fetchStats, monitorConfig.pollIntervalMs]);
+
+  const sortedProcesses = useMemo(() => {
+    if (!stats) return [];
+    const copy = [...stats.topProcesses];
+    copy.sort((a, b) =>
+      procSort === 'cpu'
+        ? b.cpuPercent - a.cpuPercent || b.memoryBytes - a.memoryBytes
+        : b.memoryBytes - a.memoryBytes || b.cpuPercent - a.cpuPercent,
+    );
+    return copy;
+  }, [stats, procSort]);
+
+  const memPercent =
+    stats && stats.memTotalBytes > 0 ? (stats.memUsedBytes / stats.memTotalBytes) * 100 : 0;
+  const swapPercent =
+    stats && stats.swapTotalBytes > 0 ? (stats.swapUsedBytes / stats.swapTotalBytes) * 100 : 0;
+
+  return {
+    stats,
+    cpuHistory,
+    rxHistory,
+    txHistory,
+    loading,
+    error,
+    targetKey,
+    activeHostConfig,
+    fetchStats,
+    procSort,
+    setProcSort,
+    sortedProcesses,
+    memPercent,
+    swapPercent,
+  };
+}
+
+type TelemetryState = ReturnType<typeof useMonitorTelemetry>;
+
+function getPanelHeaderExtras(
+  panelId: MonitorPanelId,
+  telemetry: TelemetryState,
+): {
+  icon: React.ReactNode;
+  headerMeta?: React.ReactNode;
+  headerRight?: React.ReactNode;
+} {
+  const { stats, memPercent, procSort, setProcSort } = telemetry;
+  if (!stats) {
+    const FallbackIcon = PANEL_ICON_MAP[panelId];
+    return { icon: <FallbackIcon className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" /> };
+  }
+
+  switch (panelId) {
+    case 'host':
+      return {
+        icon:
+          stats.source === 'ssh' ? (
+            <Server className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+          ) : (
+            <Terminal className="w-3.5 h-3.5 text-[var(--success)] shrink-0" />
+          ),
+        headerRight: (
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0"
+            style={{
+              backgroundColor:
+                stats.source === 'ssh'
+                  ? 'rgba(122, 162, 247, 0.18)'
+                  : 'rgba(158, 206, 106, 0.18)',
+              color: stats.source === 'ssh' ? 'var(--accent)' : 'var(--success)',
+            }}
+          >
+            {stats.source}
+          </span>
+        ),
+      };
+    case 'cpu':
+      return {
+        icon: <Cpu className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />,
+        headerMeta: (
+          <span className="text-[10px] text-[var(--text-muted)] shrink-0">
+            ({stats.cpuCores}c)
+          </span>
+        ),
+        headerRight: (
+          <span
+            className="font-mono font-semibold"
+            style={{ color: meterColor(stats.cpuUsagePercent) }}
+          >
+            {stats.cpuUsagePercent.toFixed(1)}%
+          </span>
+        ),
+      };
+    case 'memory':
+      return {
+        icon: <MemoryStick className="w-3.5 h-3.5 text-[var(--success)] shrink-0" />,
+        headerRight: (
+          <span className="font-mono text-[11px] text-[var(--text-primary)]">
+            {memPercent.toFixed(1)}%
+          </span>
+        ),
+      };
+    case 'network':
+      return { icon: <Network className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" /> };
+    case 'disks':
+      return { icon: <HardDrive className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" /> };
+    case 'processes':
+      return {
+        icon: <ListOrdered className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />,
+        headerRight: (
+          <div className="flex items-center gap-1 text-[10px]">
+            <button
+              type="button"
+              data-no-panel-drag="true"
+              onClick={() => setProcSort('cpu')}
+              className={`px-1.5 py-0.5 rounded ${
+                procSort === 'cpu'
+                  ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              CPU
+            </button>
+            <button
+              type="button"
+              data-no-panel-drag="true"
+              onClick={() => setProcSort('mem')}
+              className={`px-1.5 py-0.5 rounded ${
+                procSort === 'mem'
+                  ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              MEM
+            </button>
+          </div>
+        ),
+      };
+  }
+}
+
+function renderPanelBodyContent(panelId: MonitorPanelId, telemetry: TelemetryState): React.ReactNode {
+  const { stats, cpuHistory, rxHistory, txHistory, sortedProcesses, memPercent, swapPercent } =
+    telemetry;
+  if (!stats) return null;
+
+  switch (panelId) {
+    case 'host':
+      return (
+        <>
+          <div className="font-semibold text-[var(--text-primary)] truncate">{stats.hostname}</div>
+          <div className="text-[11px] text-[var(--text-muted)] truncate">
+            {stats.osName} {stats.arch ? `· ${stats.arch}` : ''}
+          </div>
+          {stats.kernelVersion && (
+            <div className="text-[10px] font-mono text-[var(--text-muted)] truncate">
+              {stats.kernelVersion}
+            </div>
+          )}
+          <div className="pt-1 flex items-center justify-between text-[11px] border-t border-[var(--border-subtle)]/50">
+            <span className="text-[var(--text-muted)]">
+              Up{' '}
+              <strong className="text-[var(--text-primary)]">
+                {formatUptime(stats.uptimeSecs)}
+              </strong>
+            </span>
+            <span className="font-mono text-[10px] text-[var(--text-muted)]">
+              Load {stats.loadAvg.map((v) => v.toFixed(2)).join(' ')}
+            </span>
+          </div>
+        </>
+      );
+
+    case 'cpu':
+      return (
+        <>
+          <div className="h-1.5 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
+            <div
+              className="h-full transition-all duration-300"
+              style={{
+                width: `${Math.min(100, Math.max(0, stats.cpuUsagePercent))}%`,
+                backgroundColor: meterColor(stats.cpuUsagePercent),
+              }}
+            />
+          </div>
+          <Sparkline values={cpuHistory} maxVal={100} strokeColor="var(--accent)" />
+        </>
+      );
+
+    case 'memory':
+      return (
+        <>
+          <div className="space-y-1">
+            <div className="h-1.5 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
+              <div
+                className="h-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(100, Math.max(0, memPercent))}%`,
+                  backgroundColor: meterColor(memPercent),
+                }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
+              <span>{formatBytes(stats.memUsedBytes)} used</span>
+              <span>{formatBytes(stats.memTotalBytes)} total</span>
+            </div>
+          </div>
+
+          {stats.swapTotalBytes > 0 && (
+            <div className="pt-1.5 border-t border-[var(--border-subtle)]/40 space-y-1">
+              <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
+                <span>Swap</span>
+                <span className="font-mono">
+                  {formatBytes(stats.swapUsedBytes)} / {formatBytes(stats.swapTotalBytes)}
+                </span>
+              </div>
+              <div className="h-1 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
+                <div
+                  className="h-full bg-[var(--warning)] transition-all duration-300"
+                  style={{ width: `${Math.min(100, Math.max(0, swapPercent))}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </>
+      );
+
+    case 'network':
+      return (
+        <>
+          <div className="flex items-center justify-between font-mono text-[10px]">
+            <span className="flex items-center gap-0.5 text-[var(--success)]">
+              <ArrowDown className="w-2.5 h-2.5" />
+              {formatBytes(stats.netRxBytesPerSec)}/s
+            </span>
+            <span className="flex items-center gap-0.5 text-[var(--warning)]">
+              <ArrowUp className="w-2.5 h-2.5" />
+              {formatBytes(stats.netTxBytesPerSec)}/s
+            </span>
+          </div>
+
+          <Sparkline
+            values={rxHistory}
+            secondaryValues={txHistory}
+            strokeColor="var(--success)"
+            secondaryColor="var(--warning)"
+          />
+
+          <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
+            <span>Total ↓ {formatBytes(stats.netTotalRxBytes)}</span>
+            <span>Total ↑ {formatBytes(stats.netTotalTxBytes)}</span>
+          </div>
+        </>
+      );
+
+    case 'disks':
+      return stats.disks.length > 0 ? (
+        <div className="space-y-2 pt-0.5">
+          {stats.disks.map((d) => (
+            <div key={d.mountPoint} className="space-y-0.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-mono text-[var(--text-primary)] truncate max-w-[140px]">
+                  {d.mountPoint}
+                </span>
+                <span className="font-mono text-[10px] text-[var(--text-muted)]">
+                  {formatBytes(d.usedBytes)} / {formatBytes(d.totalBytes)}
+                </span>
+              </div>
+              <div className="h-1 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
+                <div
+                  className="h-full transition-all"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, d.usagePercent))}%`,
+                    backgroundColor: meterColor(d.usagePercent),
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[11px] text-[var(--text-muted)]">No mounted disks detected</div>
+      );
+
+    case 'processes':
+      return sortedProcesses.length > 0 ? (
+        <div className="divide-y divide-[var(--border-subtle)]/40 text-[11px]">
+          {sortedProcesses.map((proc) => (
+            <div key={proc.pid} className="py-1 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-[var(--text-primary)]">{proc.name}</div>
+                <div className="text-[10px] font-mono text-[var(--text-muted)]">
+                  PID {proc.pid}
+                </div>
+              </div>
+              <div className="text-right font-mono shrink-0">
+                <div className="text-[var(--accent)]">{proc.cpuPercent.toFixed(1)}%</div>
+                <div className="text-[10px] text-[var(--text-muted)]">
+                  {formatBytes(proc.memoryBytes)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[11px] text-[var(--text-muted)]">No process data available</div>
+      );
+  }
+}
+
+export const MonitorSinglePanelViewport: React.FC<
+  ViewportComponentProps & { panelId: MonitorPanelId }
+> = ({ panelId, onClose }) => {
+  const [paused, setPaused] = useState(false);
+  const telemetry = useMonitorTelemetry(paused, true);
+  const meta = MONITOR_PANEL_META_MAP[panelId];
+  const extras = getPanelHeaderExtras(panelId, telemetry);
+
+  const handleReturnToMonitor = () => {
+    monitorPanelService.addPanel(panelId);
+    onClose();
+  };
+
+  return (
+    <section
+      aria-label={`${meta.title} Viewport`}
+      data-monitor-standalone-panel={panelId}
+      className="flex-1 flex flex-col min-w-0 min-h-0 select-none text-xs"
+      style={{ backgroundColor: 'var(--bg-surface)' }}
+    >
+      <div className="h-8 px-2.5 flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] shrink-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {extras.icon}
+          <span className="text-[11px] font-medium text-[var(--text-muted)] truncate">
+            {telemetry.targetKey === 'local'
+              ? 'Local'
+              : telemetry.activeHostConfig?.host ?? 'SSH'}
+          </span>
+          {extras.headerMeta}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {extras.headerRight}
+          <button
+            type="button"
+            onClick={handleReturnToMonitor}
+            title={`Return ${meta.title} to System Status`}
+            aria-label={`Return ${meta.title} to System Status`}
+            className="px-1.5 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1"
+          >
+            <ArrowLeft className="w-2.5 h-2.5" />
+            <span>Merge</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaused((v) => !v)}
+            title={paused ? 'Resume Auto Refresh' : 'Pause Auto Refresh'}
+            aria-label={paused ? `Resume ${meta.title}` : `Pause ${meta.title}`}
+            className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+          >
+            {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => void telemetry.fetchStats()}
+            title="Refresh Now"
+            aria-label={`Refresh ${meta.title}`}
+            className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${telemetry.loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto lighterm-scroll p-2.5 space-y-2">
+        {telemetry.error && (
+          <div className="p-2 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 text-[11px] text-[var(--danger)] break-words">
+            {telemetry.error}
+          </div>
+        )}
+
+        {!telemetry.stats && !telemetry.error ? (
+          <div className="py-10 text-center text-[var(--text-muted)]">Collecting metrics...</div>
+        ) : telemetry.stats ? (
+          renderPanelBodyContent(panelId, telemetry)
+        ) : null}
+      </div>
+    </section>
+  );
+};
+
+export function createMonitorSinglePanelViewport(
+  panelId: MonitorPanelId,
+): React.FC<ViewportComponentProps> {
+  const Component: React.FC<ViewportComponentProps> = (props) => (
+    <MonitorSinglePanelViewport {...props} panelId={panelId} />
+  );
+  Component.displayName = `MonitorSinglePanelViewport(${panelId})`;
+  return Component;
+}
+
+export const MonitorViewport: React.FC<ViewportComponentProps> = ({ viewport }) => {
+  const panels = useMonitorPanelStore((s) => s.panels);
+  const [paused, setPaused] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [panelDrag, setPanelDrag] = useState<PanelDragState | null>(null);
+  const [flipSeq, setFlipSeq] = useState(0);
+
+  const hasPanels = panels.length > 0;
+  const telemetry = useMonitorTelemetry(paused, hasPanels);
+  const { stats, loading, error, targetKey, activeHostConfig, fetchStats } = telemetry;
+
+  const asideRef = useRef<HTMLElement | null>(null);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const panelDragRef = useRef<PanelDragState | null>(null);
+  const flipPrevRectsRef = useRef<Map<string, { left: number; top: number; fromGhost?: boolean }>>(
+    new Map(),
+  );
+
+  const missingPanels = useMemo(
+    () => DEFAULT_MONITOR_PANELS.filter((id) => !panels.includes(id)),
+    [panels],
+  );
+  const isDefaultLayout = useMemo(() => isDefaultPanelOrder(panels), [panels]);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -522,8 +947,26 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
     return computeDragTargetIndex(cur.baseRects, cur.fromIndex, ghostCenterLogicalY, cur.gap);
   }, []);
 
+  const isOutsideMonitorBounds = useCallback(
+    (panelId: MonitorPanelId, clientX: number, clientY: number): boolean => {
+      const vpType = getMonitorPanelViewportType(panelId);
+      if (!harnessKernel.getViewportDescriptor(vpType)) return false;
+      const asideEl = asideRef.current;
+      if (!asideEl) return false;
+      const rect = asideEl.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      return (
+        clientX < rect.left - 16 ||
+        clientX > rect.right + 6 ||
+        clientY < rect.top - 8 ||
+        clientY > rect.bottom + 16
+      );
+    },
+    [],
+  );
+
   const isTrackingDrag = Boolean(panelDrag);
-  const isDragActive = Boolean(panelDrag?.active);
+  const isDragActive = Boolean(panelDrag?.active && !panelDrag.tornOff);
 
   useEffect(() => {
     if (!isTrackingDrag) return;
@@ -538,12 +981,55 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
       if (!cur) return;
       const dist = Math.hypot(ev.clientX - cur.startX, ev.clientY - cur.startY);
       const active = cur.active || dist >= DRAG_THRESHOLD_PX;
+      const outside = active && isOutsideMonitorBounds(cur.panelId, ev.clientX, ev.clientY);
+
+      if (outside) {
+        const next: PanelDragState = {
+          ...cur,
+          currentX: ev.clientX,
+          currentY: ev.clientY,
+          active: true,
+          tornOff: true,
+        };
+        panelDragRef.current = next;
+        if (!cur.tornOff) {
+          setPanelDrag(next);
+          const meta = MONITOR_PANEL_META_MAP[cur.panelId];
+          const floatOffsetX = Math.min(180, Math.max(24, Math.round(cur.offsetX)));
+          layoutService.startTearOffDrag({
+            typeId: meta.viewportTypeId,
+            pluginId: 'lighterm.monitor',
+            title: meta.title,
+            params: { panelId: cur.panelId },
+            dockRatio: meta.defaultDockRatio,
+            floatRect: meta.defaultFloatSize,
+            originViewportId: viewport.id,
+            startX: cur.startX,
+            startY: cur.startY,
+            currentX: ev.clientX,
+            currentY: ev.clientY,
+            floatOffsetX,
+            floatOffsetY: 16,
+            active: true,
+            onCommit: () => {
+              monitorPanelService.removePanel(cur.panelId);
+            },
+          });
+        }
+        return;
+      }
+
+      if (cur.tornOff) {
+        layoutService.cancelDrag();
+      }
+
       const targetIndex = active ? resolveTargetIndex(cur, ev.clientY) : cur.targetIndex;
       const next: PanelDragState = {
         ...cur,
         currentX: ev.clientX,
         currentY: ev.clientY,
         active,
+        tornOff: false,
         targetIndex,
       };
       panelDragRef.current = next;
@@ -552,6 +1038,10 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
 
     const onUp = () => {
       const cur = panelDragRef.current;
+      if (cur?.tornOff) {
+        clearDrag();
+        return;
+      }
       if (cur?.active) {
         capturePanelRects(cur.panelId);
       }
@@ -565,7 +1055,9 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
 
     const onCancel = () => {
       const cur = panelDragRef.current;
-      if (cur?.active) {
+      if (cur?.tornOff) {
+        layoutService.cancelDrag();
+      } else if (cur?.active) {
         capturePanelRects(cur.panelId);
         setFlipSeq((s) => s + 1);
       }
@@ -590,7 +1082,7 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
       window.removeEventListener('blur', onCancel);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [isTrackingDrag, resolveTargetIndex, capturePanelRects]);
+  }, [isTrackingDrag, resolveTargetIndex, capturePanelRects, isOutsideMonitorBounds, viewport.id]);
 
   useEffect(() => {
     if (!isDragActive || typeof requestAnimationFrame !== 'function') return;
@@ -716,6 +1208,27 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
     monitorPanelService.removePanel(id);
   };
 
+  const handleDetachPanel = (id: MonitorPanelId) => {
+    const meta = MONITOR_PANEL_META_MAP[id];
+    const originLoc = layoutService.getViewportLocation(viewport.id);
+    const targetDock =
+      originLoc === 'left-drawer' || originLoc === 'right-drawer' ? originLoc : meta.defaultPosition;
+    capturePanelRects();
+    layoutService.detachToViewport({
+      typeId: meta.viewportTypeId,
+      pluginId: 'lighterm.monitor',
+      title: meta.title,
+      params: { panelId: id },
+      dockRatio: meta.defaultDockRatio,
+      floatRect: meta.defaultFloatSize,
+      originViewportId: viewport.id,
+      preferredDock: targetDock,
+      onCommit: () => {
+        monitorPanelService.removePanel(id);
+      },
+    });
+  };
+
   const handleKeyboardReorder = (id: MonitorPanelId, index: number, delta: -1 | 1) => {
     const targetIdx = index + delta;
     if (targetIdx < 0 || targetIdx >= panels.length) return;
@@ -723,30 +1236,14 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
     monitorPanelService.movePanelByDelta(id, delta);
   };
 
-  const sortedProcesses = useMemo(() => {
-    if (!stats) return [];
-    const copy = [...stats.topProcesses];
-    copy.sort((a, b) =>
-      procSort === 'cpu'
-        ? b.cpuPercent - a.cpuPercent || b.memoryBytes - a.memoryBytes
-        : b.memoryBytes - a.memoryBytes || b.cpuPercent - a.cpuPercent,
-    );
-    return copy;
-  }, [stats, procSort]);
-
-  const memPercent =
-    stats && stats.memTotalBytes > 0 ? (stats.memUsedBytes / stats.memTotalBytes) * 100 : 0;
-  const swapPercent =
-    stats && stats.swapTotalBytes > 0 ? (stats.swapUsedBytes / stats.swapTotalBytes) * 100 : 0;
-
   const animateDisplacement = isDragActive && !prefersReducedMotion();
 
   const renderPanel = (panelId: MonitorPanelId, index: number, isGhost = false) => {
     if (!stats) return null;
     const meta = MONITOR_PANEL_META_MAP[panelId];
-    const isPlaceholder = !isGhost && Boolean(panelDrag?.active && panelDrag.panelId === panelId);
+    const isPlaceholder = !isGhost && Boolean(isDragActive && panelDrag?.panelId === panelId);
     const displacementY =
-      !isGhost && panelDrag?.active
+      !isGhost && isDragActive && panelDrag
         ? computeCardDisplacementY(
             panelDrag.baseRects,
             panelDrag.fromIndex,
@@ -755,282 +1252,31 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
             panelDrag.gap,
           )
         : 0;
+    const extras = getPanelHeaderExtras(panelId, telemetry);
+    const canDetach = Boolean(harnessKernel.getViewportDescriptor(meta.viewportTypeId));
 
-    const commonProps = {
-      panelId,
-      title: meta.title,
-      isGhost,
-      isPlaceholder,
-      placeholderHeight: panelDrag?.draggedHeight ?? 0,
-      isDragActive: !isGhost && isDragActive,
-      displacementY,
-      animateDisplacement: !isGhost && animateDisplacement,
-      onHeaderPointerDown: (e: React.PointerEvent) => startPanelDrag(e, panelId, index),
-      onKeyboardReorder: (delta: -1 | 1) => handleKeyboardReorder(panelId, index, delta),
-      onRemove: () => handleRemovePanel(panelId),
-    };
-
-    switch (panelId) {
-      case 'host':
-        return (
-          <StatusPanelCard
-            key={panelId}
-            {...commonProps}
-            icon={
-              stats.source === 'ssh' ? (
-                <Server className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
-              ) : (
-                <Terminal className="w-3.5 h-3.5 text-[var(--success)] shrink-0" />
-              )
-            }
-            headerRight={
-              <span
-                className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0"
-                style={{
-                  backgroundColor:
-                    stats.source === 'ssh'
-                      ? 'rgba(122, 162, 247, 0.18)'
-                      : 'rgba(158, 206, 106, 0.18)',
-                  color: stats.source === 'ssh' ? 'var(--accent)' : 'var(--success)',
-                }}
-              >
-                {stats.source}
-              </span>
-            }
-          >
-            <div className="font-semibold text-[var(--text-primary)] truncate">
-              {stats.hostname}
-            </div>
-            <div className="text-[11px] text-[var(--text-muted)] truncate">
-              {stats.osName} {stats.arch ? `· ${stats.arch}` : ''}
-            </div>
-            {stats.kernelVersion && (
-              <div className="text-[10px] font-mono text-[var(--text-muted)] truncate">
-                {stats.kernelVersion}
-              </div>
-            )}
-            <div className="pt-1 flex items-center justify-between text-[11px] border-t border-[var(--border-subtle)]/50">
-              <span className="text-[var(--text-muted)]">
-                Up <strong className="text-[var(--text-primary)]">{formatUptime(stats.uptimeSecs)}</strong>
-              </span>
-              <span className="font-mono text-[10px] text-[var(--text-muted)]">
-                Load {stats.loadAvg.map((v) => v.toFixed(2)).join(' ')}
-              </span>
-            </div>
-          </StatusPanelCard>
-        );
-
-      case 'cpu':
-        return (
-          <StatusPanelCard
-            key={panelId}
-            {...commonProps}
-            icon={<Cpu className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />}
-            headerMeta={
-              <span className="text-[10px] text-[var(--text-muted)] shrink-0">
-                ({stats.cpuCores}c)
-              </span>
-            }
-            headerRight={
-              <span
-                className="font-mono font-semibold"
-                style={{ color: meterColor(stats.cpuUsagePercent) }}
-              >
-                {stats.cpuUsagePercent.toFixed(1)}%
-              </span>
-            }
-          >
-            <div className="h-1.5 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
-              <div
-                className="h-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(100, Math.max(0, stats.cpuUsagePercent))}%`,
-                  backgroundColor: meterColor(stats.cpuUsagePercent),
-                }}
-              />
-            </div>
-            <Sparkline values={cpuHistory} maxVal={100} strokeColor="var(--accent)" />
-          </StatusPanelCard>
-        );
-
-      case 'memory':
-        return (
-          <StatusPanelCard
-            key={panelId}
-            {...commonProps}
-            icon={<MemoryStick className="w-3.5 h-3.5 text-[var(--success)] shrink-0" />}
-            headerRight={
-              <span className="font-mono text-[11px] text-[var(--text-primary)]">
-                {memPercent.toFixed(1)}%
-              </span>
-            }
-          >
-            <div className="space-y-1">
-              <div className="h-1.5 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
-                <div
-                  className="h-full transition-all duration-300"
-                  style={{
-                    width: `${Math.min(100, Math.max(0, memPercent))}%`,
-                    backgroundColor: meterColor(memPercent),
-                  }}
-                />
-              </div>
-              <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
-                <span>{formatBytes(stats.memUsedBytes)} used</span>
-                <span>{formatBytes(stats.memTotalBytes)} total</span>
-              </div>
-            </div>
-
-            {stats.swapTotalBytes > 0 && (
-              <div className="pt-1.5 border-t border-[var(--border-subtle)]/40 space-y-1">
-                <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
-                  <span>Swap</span>
-                  <span className="font-mono">
-                    {formatBytes(stats.swapUsedBytes)} / {formatBytes(stats.swapTotalBytes)}
-                  </span>
-                </div>
-                <div className="h-1 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
-                  <div
-                    className="h-full bg-[var(--warning)] transition-all duration-300"
-                    style={{ width: `${Math.min(100, Math.max(0, swapPercent))}%` }}
-                  />
-                </div>
-              </div>
-            )}
-          </StatusPanelCard>
-        );
-
-      case 'network':
-        return (
-          <StatusPanelCard
-            key={panelId}
-            {...commonProps}
-            icon={<Network className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />}
-          >
-            <div className="flex items-center justify-between font-mono text-[10px]">
-              <span className="flex items-center gap-0.5 text-[var(--success)]">
-                <ArrowDown className="w-2.5 h-2.5" />
-                {formatBytes(stats.netRxBytesPerSec)}/s
-              </span>
-              <span className="flex items-center gap-0.5 text-[var(--warning)]">
-                <ArrowUp className="w-2.5 h-2.5" />
-                {formatBytes(stats.netTxBytesPerSec)}/s
-              </span>
-            </div>
-
-            <Sparkline
-              values={rxHistory}
-              secondaryValues={txHistory}
-              strokeColor="var(--success)"
-              secondaryColor="var(--warning)"
-            />
-
-            <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
-              <span>Total ↓ {formatBytes(stats.netTotalRxBytes)}</span>
-              <span>Total ↑ {formatBytes(stats.netTotalTxBytes)}</span>
-            </div>
-          </StatusPanelCard>
-        );
-
-      case 'disks':
-        return (
-          <StatusPanelCard
-            key={panelId}
-            {...commonProps}
-            icon={<HardDrive className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />}
-          >
-            {stats.disks.length > 0 ? (
-              <div className="space-y-2 pt-0.5">
-                {stats.disks.map((d) => (
-                  <div key={d.mountPoint} className="space-y-0.5">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-mono text-[var(--text-primary)] truncate max-w-[140px]">
-                        {d.mountPoint}
-                      </span>
-                      <span className="font-mono text-[10px] text-[var(--text-muted)]">
-                        {formatBytes(d.usedBytes)} / {formatBytes(d.totalBytes)}
-                      </span>
-                    </div>
-                    <div className="h-1 w-full rounded-full bg-[var(--bg-elevated)] overflow-hidden">
-                      <div
-                        className="h-full transition-all"
-                        style={{
-                          width: `${Math.min(100, Math.max(0, d.usagePercent))}%`,
-                          backgroundColor: meterColor(d.usagePercent),
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-[11px] text-[var(--text-muted)]">No mounted disks detected</div>
-            )}
-          </StatusPanelCard>
-        );
-
-      case 'processes':
-        return (
-          <StatusPanelCard
-            key={panelId}
-            {...commonProps}
-            icon={<ListOrdered className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />}
-            headerRight={
-              <div className="flex items-center gap-1 text-[10px]">
-                <button
-                  type="button"
-                  data-no-panel-drag="true"
-                  onClick={() => setProcSort('cpu')}
-                  className={`px-1.5 py-0.5 rounded ${
-                    procSort === 'cpu'
-                      ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  CPU
-                </button>
-                <button
-                  type="button"
-                  data-no-panel-drag="true"
-                  onClick={() => setProcSort('mem')}
-                  className={`px-1.5 py-0.5 rounded ${
-                    procSort === 'mem'
-                      ? 'bg-[var(--accent)]/20 text-[var(--accent)]'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  MEM
-                </button>
-              </div>
-            }
-          >
-            {sortedProcesses.length > 0 ? (
-              <div className="divide-y divide-[var(--border-subtle)]/40 text-[11px]">
-                {sortedProcesses.map((proc) => (
-                  <div key={proc.pid} className="py-1 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-[var(--text-primary)]">{proc.name}</div>
-                      <div className="text-[10px] font-mono text-[var(--text-muted)]">
-                        PID {proc.pid}
-                      </div>
-                    </div>
-                    <div className="text-right font-mono shrink-0">
-                      <div className="text-[var(--accent)]">{proc.cpuPercent.toFixed(1)}%</div>
-                      <div className="text-[10px] text-[var(--text-muted)]">
-                        {formatBytes(proc.memoryBytes)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-[11px] text-[var(--text-muted)]">
-                No process data available
-              </div>
-            )}
-          </StatusPanelCard>
-        );
-    }
+    return (
+      <StatusPanelCard
+        key={panelId}
+        panelId={panelId}
+        title={meta.title}
+        icon={extras.icon}
+        headerMeta={extras.headerMeta}
+        headerRight={extras.headerRight}
+        isGhost={isGhost}
+        isPlaceholder={isPlaceholder}
+        placeholderHeight={panelDrag?.draggedHeight ?? 0}
+        isDragActive={!isGhost && isDragActive}
+        displacementY={displacementY}
+        animateDisplacement={!isGhost && animateDisplacement}
+        onHeaderPointerDown={(e: React.PointerEvent) => startPanelDrag(e, panelId, index)}
+        onKeyboardReorder={(delta: -1 | 1) => handleKeyboardReorder(panelId, index, delta)}
+        onDetach={canDetach ? () => handleDetachPanel(panelId) : undefined}
+        onRemove={() => handleRemovePanel(panelId)}
+      >
+        {renderPanelBodyContent(panelId, telemetry)}
+      </StatusPanelCard>
+    );
   };
 
   return (
@@ -1216,7 +1462,7 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = () => {
       </div>
 
       {/* Translucent Floating Panel Drag Ghost */}
-      {panelDrag?.active && stats && (
+      {isDragActive && stats && panelDrag && (
         <div
           data-monitor-drag-ghost={panelDrag.panelId}
           aria-hidden="true"

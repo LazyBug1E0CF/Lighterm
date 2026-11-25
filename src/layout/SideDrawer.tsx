@@ -189,6 +189,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
 
   const railElement = (
     <div
+      data-activity-rail={side}
       data-drop-drawer={side}
       aria-label={`${sideLabel} Activity Rail`}
       className={`relative z-20 w-11 flex flex-col items-center py-2 gap-1.5 shrink-0 transition-colors ${
@@ -256,7 +257,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
             aria-label={`Add Viewport Menu ${side}`}
             className={`absolute top-0 ${
               side === 'left' ? 'left-full ml-1.5' : 'right-full mr-1.5'
-            } z-50 w-52 py-1.5 rounded-lg border shadow-2xl text-xs`}
+            } z-50 w-56 max-h-[70vh] overflow-y-auto lighterm-scroll py-1.5 rounded-lg border shadow-2xl text-xs`}
             style={{
               backgroundColor: 'var(--bg-elevated)',
               borderColor: 'var(--border-subtle)',
@@ -265,7 +266,9 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
             <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
               Add to {sideLabel} Drawer
             </div>
-            {Object.values(descriptors).map((desc) => {
+            {Object.values(descriptors)
+              .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title))
+              .map((desc) => {
               const Icon = desc.icon;
               const existing = desc.singleton
                 ? layoutService.findViewportsByType(desc.typeId)[0]
@@ -388,6 +391,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
         >
         {/* Draggable Drawer Header */}
         <div
+          data-drawer-header={side}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
             if ((e.target as HTMLElement).closest('button[data-no-drag="true"]')) return;

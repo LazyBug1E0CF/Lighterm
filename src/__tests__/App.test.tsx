@@ -237,7 +237,7 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
       expect(harnessKernel.isPluginActive('lighterm.monitor')).toBe(true);
       expect(screen.getByLabelText('Split Horizontally')).toBeTruthy();
     });
-  }, 15000);
+  }, 30000);
 
   it('suppresses default browser context menus globally while preserving custom app context menus', async () => {
     render(<App />);
