@@ -7,12 +7,12 @@ import { windowControls } from '../core/windowControls';
 import { workspaceManager } from '../core/workspaceManager';
 import { collectGroups } from '../layout/dockTree';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
-import { resetLightermHarnessForTesting } from '../plugins';
+import { resetLightermKernelForTesting } from '../plugins';
 
 describe('Workspace Rename, Save, Hosts Discovery & Layout Restoration', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('renames, saves, captures closing layout changes, and re-opens terminals with exact layout from Hosts plugin', async () => {

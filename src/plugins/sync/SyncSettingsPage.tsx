@@ -25,7 +25,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { isTauriRuntime } from '../../core/ipc';
-import type { PluginSettingsPageProps } from '../../harness';
+import type { PluginSettingsPageProps } from '../../kernel';
 import {
   createDefaultSyncConfig,
   syncClient,

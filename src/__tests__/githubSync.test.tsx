@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from '../App';
 import { shellService, useShellStore } from '../core/shellService';
-import { harnessKernel } from '../harness/HarnessKernel';
-import { resetLightermHarnessForTesting } from '../plugins';
+import { pluginKernel } from '../kernel/PluginKernel';
+import { resetLightermKernelForTesting } from '../plugins';
 import { SYNC_PLUGIN_ID, syncClient, useSyncPluginStore } from '../plugins/sync';
 
 describe('GitHub Config Sync Plugin (Zero-Config OAuth & Managed Gist)', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('hides storage target and encryption inside collapsed Optional & Advanced Settings, syncs autonomously with a managed Gist via OAuth, and handles logout/disable cleanly', async () => {
@@ -17,7 +17,7 @@ describe('GitHub Config Sync Plugin (Zero-Config OAuth & Managed Gist)', () => {
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
-      expect(harnessKernel.isPluginActive(SYNC_PLUGIN_ID)).toBe(true);
+      expect(pluginKernel.isPluginActive(SYNC_PLUGIN_ID)).toBe(true);
     });
 
     // Status bar button opens Settings -> Plugins -> GitHub Sync directly
@@ -189,18 +189,18 @@ describe('GitHub Config Sync Plugin (Zero-Config OAuth & Managed Gist)', () => {
 
     // Disabling lighterm.sync removes statusbar widget; re-enabling restores it
     await act(async () => {
-      await harnessKernel.disablePlugin(SYNC_PLUGIN_ID);
+      await pluginKernel.disablePlugin(SYNC_PLUGIN_ID);
     });
     await waitFor(() => {
-      expect(harnessKernel.isPluginActive(SYNC_PLUGIN_ID)).toBe(false);
+      expect(pluginKernel.isPluginActive(SYNC_PLUGIN_ID)).toBe(false);
       expect(screen.queryByLabelText('GitHub Sync Status')).toBeNull();
     });
 
     await act(async () => {
-      await harnessKernel.enablePlugin(SYNC_PLUGIN_ID);
+      await pluginKernel.enablePlugin(SYNC_PLUGIN_ID);
     });
     await waitFor(() => {
-      expect(harnessKernel.isPluginActive(SYNC_PLUGIN_ID)).toBe(true);
+      expect(pluginKernel.isPluginActive(SYNC_PLUGIN_ID)).toBe(true);
       expect(screen.getByLabelText('GitHub Sync Status')).toBeTruthy();
     });
   }, 15000);

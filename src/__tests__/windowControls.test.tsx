@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ShellTopBar } from '../components/shell/ShellTopBar';
 import { detectPlatformFromEnv, useWindowStore, windowControls } from '../core/windowControls';
-import { HarnessProvider } from '../harness/HarnessContext';
-import { harnessKernel } from '../harness/HarnessKernel';
-import { bootstrapLightermHarness, resetLightermHarnessForTesting } from '../plugins';
+import { KernelProvider } from '../kernel/KernelContext';
+import { pluginKernel } from '../kernel/PluginKernel';
+import { bootstrapLightermKernel, resetLightermKernelForTesting } from '../plugins';
 
 describe('Platform-adaptive frameless WindowControls & ShellTopBar', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('detects Windows, macOS, and Linux from user agent environment', () => {
@@ -21,9 +21,9 @@ describe('Platform-adaptive frameless WindowControls & ShellTopBar', () => {
   it('places Windows controls at the end of ShellTopBar, toggles maximize state, and supports header double-click', () => {
     windowControls.setPlatformForTesting('windows');
     render(
-      <HarnessProvider kernel={harnessKernel}>
+      <KernelProvider kernel={pluginKernel}>
         <ShellTopBar />
-      </HarnessProvider>,
+      </KernelProvider>,
     );
 
     const header = screen.getByRole('banner');
@@ -55,9 +55,9 @@ describe('Platform-adaptive frameless WindowControls & ShellTopBar', () => {
   it('places macOS traffic-light controls at the start of ShellTopBar before the brand badge', () => {
     windowControls.setPlatformForTesting('macos');
     render(
-      <HarnessProvider kernel={harnessKernel}>
+      <KernelProvider kernel={pluginKernel}>
         <ShellTopBar />
-      </HarnessProvider>,
+      </KernelProvider>,
     );
 
     const header = screen.getByRole('banner');
@@ -72,16 +72,16 @@ describe('Platform-adaptive frameless WindowControls & ShellTopBar', () => {
   });
 
   it('omits plugin drawer viewport toggle buttons from ShellTopBar while keeping plugins active', async () => {
-    await bootstrapLightermHarness();
+    await bootstrapLightermKernel();
     render(
-      <HarnessProvider kernel={harnessKernel}>
+      <KernelProvider kernel={pluginKernel}>
         <ShellTopBar />
-      </HarnessProvider>,
+      </KernelProvider>,
     );
 
     const header = screen.getByRole('banner');
-    expect(harnessKernel.isPluginActive('lighterm.hosts')).toBe(true);
-    expect(harnessKernel.isPluginActive('lighterm.sftp')).toBe(true);
+    expect(pluginKernel.isPluginActive('lighterm.hosts')).toBe(true);
+    expect(pluginKernel.isPluginActive('lighterm.sftp')).toBe(true);
     expect(within(header).queryByLabelText('SSH Hosts')).toBeNull();
     expect(within(header).queryByLabelText('Snippets')).toBeNull();
     expect(within(header).queryByLabelText('Command History')).toBeNull();

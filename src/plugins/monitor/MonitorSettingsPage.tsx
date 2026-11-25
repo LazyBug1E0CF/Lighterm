@@ -1,6 +1,6 @@
 import React from 'react';
 import { RotateCcw } from 'lucide-react';
-import { type PluginSettingsPageProps, usePluginConfig } from '../../harness';
+import { type PluginSettingsPageProps, usePluginConfig } from '../../kernel';
 import {
   DEFAULT_MONITOR_CONFIG,
   MONITOR_PANEL_CATALOG,

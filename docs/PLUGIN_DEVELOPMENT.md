@@ -14,10 +14,10 @@ Lighterm 采用受 **Cordis** 启发的 **Everything-is-a-Plugin（微内核 + �
   - 本地 PTY（`portable-pty`）与异步 SSH2（`russh`）会话连接池 `SessionManager` / `SshConnectionPool`
   - 原子文件持久化 `Storage`（`hosts.json`、`workspaces.json`、`settings.json`、`plugins.json`、`plugin-configs.json` 以及插件专属 JSON 存储）
   - 后端插件注册与生命周期管理 `CorePlugin` / `PluginRegistry`
-- **前端内核（`src/core/`, `src/harness/`, `src/layout/`）**：
+- **前端内核（`src/core/`, `src/kernel/`, `src/layout/`）**：
   - `core:shell`（`ShellService`）：会话、主机配置、全局外观设置、模态框控制
   - `core:layout`（`LayoutService`）：统一递归 `DockNode` 分栏树、左右可折叠抽屉（`SideDrawer`）与浮动窗口管理
-  - `HarnessKernel`：插件定义校验、依赖解析（`inject` / `provide`）、`EffectScope` 可逆清理、视口/配置页/插槽/命令注册与插件配置持久化
+  - `PluginKernel`：插件定义校验、依赖解析（`inject` / `provide`）、`EffectScope` 可逆清理、视口/配置页/插槽/命令注册与插件配置持久化
 
 ### 1.2 禁止硬编码与可逆清理原则
 - **严禁硬编码耦合**：Core、Layout 引擎、Bootstrap 启动流程和 Tauri 命令层禁止硬编码特定插件 ID、视口 `typeId` 或直接下转型具体插件类型来触发副作用。启动挂载、布局重置（`resetLayoutPreservingViewports`）必须通过 `ViewportDescriptor` 元数据驱动；后端主机缓存失效通过 `CorePlugin::on_host_invalidated` 生命周期钩子广播。
@@ -62,10 +62,10 @@ crates/plugins/<plugin-name>/
 
 ### 3.1 使用 `definePlugin` 定义插件
 
-所有前端插件须通过 `definePlugin`（导出自 `src/harness`）定义，内核会在定义及注册阶段立即校验 `id`、`name`、`version` 与 `activate`。
+所有前端插件须通过 `definePlugin`（导出自 `src/kernel`）定义，内核会在定义及注册阶段立即校验 `id`、`name`、`version` 与 `activate`。
 
 ```ts
-import { definePlugin } from '../../harness';
+import { definePlugin } from '../../kernel';
 
 export const myPlugin = definePlugin({
   id: 'acme.demo',
@@ -163,7 +163,7 @@ ctx.registerViewport({
   - `layout.detachToViewport({ typeId, pluginId, title, preferredDock, onCommit })`：点击卡片上的「独立打开」快捷按钮时，一步创建或聚焦独立视口。
 
 ### 4.4 位置调度、打开、切换与布局重置
-- **打开/切换辅助方法**：插件内无需重复编写位置分支判断，直接调用 `layout.toggleSingletonViewport({ typeId })` 或 `layout.openPluginViewport(typeId)`，布局引擎会自动读取注册的 `defaultPosition`、`defaultDockRatio` 与 `defaultFloatSize`；可通过 `harnessKernel.getPluginViewportDescriptors(pluginId)` 查询插件名下全部视口。
+- **打开/切换辅助方法**：插件内无需重复编写位置分支判断，直接调用 `layout.toggleSingletonViewport({ typeId })` 或 `layout.openPluginViewport(typeId)`，布局引擎会自动读取注册的 `defaultPosition`、`defaultDockRatio` 与 `defaultFloatSize`；可通过 `pluginKernel.getPluginViewportDescriptors(pluginId)` 查询插件名下全部视口。
 - **布局重置（Reset Layout）**：用户点击顶部 `Reset Layout` 时，`layoutService.resetLayoutPreservingViewports()` 会保留所有当前打开的视口实例，并严格按照每个视口注册的 `defaultPosition` 归位（抽屉视口归位至左右抽屉，底部/边缘视口归位至边缘分栏，悬浮视口归位至浮动层）。
 - **主题样式与拖拽隔离**：
   - 视口样式必须使用全局 CSS 变量（`--bg-app`、`--bg-surface`、`--bg-elevated`、`--border-subtle`、`--text-primary`、`--text-muted`、`--accent`、`--success`、`--warning`、`--danger`），严禁硬编码固定深/浅色 hex 值。
@@ -330,7 +330,7 @@ import {
   usePluginConfig,
   type PluginSettingsPageProps,
   type ViewportComponentProps,
-} from '../../harness';
+} from '../../kernel';
 
 export const NOTES_VIEWPORT_TYPE = 'acme.quick-notes.panel';
 

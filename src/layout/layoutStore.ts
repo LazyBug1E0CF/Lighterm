@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { makeUuid, readLs, writeLs } from '../core/ipc';
 import type { ShellService } from '../core/shellService';
-import { harnessKernel } from '../harness/HarnessKernel';
-import type { PreferredDockPosition } from '../harness/types';
+import { pluginKernel } from '../kernel/PluginKernel';
+import type { PreferredDockPosition } from '../kernel/types';
 import {
   buildPresetDockTree,
   collectGroups,
@@ -288,7 +288,7 @@ function syncActiveSessionForWorkspace(
   activeViewportId: string | null,
   viewports: Record<string, ViewportInstance>,
 ): void {
-  const shell = harnessKernel.getService<ShellService>('core:shell');
+  const shell = pluginKernel.getService<ShellService>('core:shell');
   if (!shell) return;
   const wsIds = collectOrderedWorkspaceIds(dockRoot, floating);
   if (activeViewportId && wsIds.includes(activeViewportId)) {
@@ -434,7 +434,7 @@ export class LayoutService {
       dragState: null,
     }));
 
-    harnessKernel.getService<ShellService>('core:shell')?.setActiveSession(null);
+    pluginKernel.getService<ShellService>('core:shell')?.setActiveSession(null);
     return ws;
   }
 
@@ -605,7 +605,7 @@ export class LayoutService {
     for (const vid of targetViewportIds) {
       const vp = state.viewports[vid];
       if (vp) {
-        const desc = harnessKernel.getViewportDescriptor(vp.typeId);
+        const desc = pluginKernel.getViewportDescriptor(vp.typeId);
         if (desc?.onClose) {
           try {
             desc.onClose(vp);
@@ -640,7 +640,7 @@ export class LayoutService {
         layoutTransitionSeq: snap?.seq ?? state.layoutTransitionSeq,
         dragState: null,
       });
-      harnessKernel.getService<ShellService>('core:shell')?.setActiveSession(null);
+      pluginKernel.getService<ShellService>('core:shell')?.setActiveSession(null);
       return;
     }
 
@@ -703,7 +703,7 @@ export class LayoutService {
 
     for (const id of nonTerminalDockedIds) {
       const vp = state.viewports[id];
-      const desc = vp ? harnessKernel.getViewportDescriptor(vp.typeId) : undefined;
+      const desc = vp ? pluginKernel.getViewportDescriptor(vp.typeId) : undefined;
       const pos = desc?.defaultPosition ?? desc?.defaultDock;
       const edge: DockEdge =
         pos === 'left' || pos === 'right' || pos === 'top' || pos === 'bottom'
@@ -751,7 +751,7 @@ export class LayoutService {
 
   openViewport(opts: OpenViewportOptions): ViewportInstance {
     const state = useLayoutStore.getState();
-    const desc = harnessKernel.getViewportDescriptor(opts.typeId);
+    const desc = pluginKernel.getViewportDescriptor(opts.typeId);
     const id = opts.id ?? makeUuid('vp');
     const resolvedPluginId = opts.pluginId ?? desc?.pluginId ?? 'unknown';
     const resolvedTitle = opts.title ?? desc?.title ?? opts.typeId;
@@ -838,14 +838,14 @@ export class LayoutService {
         const edgePositions = soleGroup.viewportIds
           .map((vid) => {
             const vp = nextViewports[vid];
-            const vpDesc = vp ? harnessKernel.getViewportDescriptor(vp.typeId) : undefined;
+            const vpDesc = vp ? pluginKernel.getViewportDescriptor(vp.typeId) : undefined;
             return vpDesc?.defaultPosition ?? vpDesc?.defaultDock;
           })
           .filter((p): p is DockEdge => p === 'left' || p === 'right' || p === 'top' || p === 'bottom');
         if (soleGroup.viewportIds.length > 0 && edgePositions.length === soleGroup.viewportIds.length) {
           const edge = edgePositions[0];
           const firstVp = nextViewports[soleGroup.viewportIds[0]];
-          const firstDesc = firstVp ? harnessKernel.getViewportDescriptor(firstVp.typeId) : undefined;
+          const firstDesc = firstVp ? pluginKernel.getViewportDescriptor(firstVp.typeId) : undefined;
           const newGroup = createGroup(id);
           if (edge === 'bottom') {
             nextRoot = {
@@ -943,7 +943,7 @@ export class LayoutService {
   toggleSingletonViewport(
     opts: { typeId: string } & Partial<Omit<OpenViewportOptions, 'id' | 'typeId'>>,
   ): ViewportInstance | null {
-    const desc = harnessKernel.getViewportDescriptor(opts.typeId);
+    const desc = pluginKernel.getViewportDescriptor(opts.typeId);
     const preferred = opts.preferredDock ?? desc?.defaultPosition ?? desc?.defaultDock ?? 'bottom';
     const resolvedOpts: OpenViewportOptions = {
       ...opts,
@@ -991,7 +991,7 @@ export class LayoutService {
     typeId: string,
     opts?: Partial<Omit<OpenViewportOptions, 'typeId'>>,
   ): ViewportInstance | null {
-    const desc = harnessKernel.getViewportDescriptor(typeId);
+    const desc = pluginKernel.getViewportDescriptor(typeId);
     const preferred = opts?.preferredDock ?? desc?.defaultPosition ?? desc?.defaultDock ?? 'center';
     if (desc?.singleton) {
       const existing = this.findViewportsByType(typeId)[0];
@@ -1020,7 +1020,7 @@ export class LayoutService {
   detachToViewport(
     spec: TearOffViewportSpec & { preferredDock?: PreferredDockPosition },
   ): ViewportInstance {
-    const desc = harnessKernel.getViewportDescriptor(spec.typeId);
+    const desc = pluginKernel.getViewportDescriptor(spec.typeId);
     const preferred =
       spec.preferredDock ?? desc?.defaultPosition ?? desc?.defaultDock ?? 'right-drawer';
     const dockRatio = spec.dockRatio ?? desc?.defaultDockRatio;
@@ -1051,11 +1051,11 @@ export class LayoutService {
     scope: 'drawers' | 'workspace' | 'all' = 'all',
     onlyPluginId?: string,
   ): void {
-    const descriptors = harnessKernel
+    const descriptors = pluginKernel
       .getViewportDescriptors()
       .filter((desc) => {
         if (!desc.openOnStartup || desc.singleton === false) return false;
-        if (!harnessKernel.isPluginActive(desc.pluginId)) return false;
+        if (!pluginKernel.isPluginActive(desc.pluginId)) return false;
         if (onlyPluginId && desc.pluginId !== onlyPluginId) return false;
         const pos = desc.defaultPosition ?? desc.defaultDock;
         const isDrawer = pos === 'left-drawer' || pos === 'right-drawer';
@@ -1098,7 +1098,7 @@ export class LayoutService {
         ? state.activeLayoutPreset
         : null;
 
-    const desc = harnessKernel.getViewportDescriptor(existing.typeId);
+    const desc = pluginKernel.getViewportDescriptor(existing.typeId);
     if (desc?.onClose) {
       try {
         desc.onClose(existing);
@@ -1356,7 +1356,7 @@ export class LayoutService {
     const vp = state.viewports[viewportId];
     if (!vp) return;
 
-    const desc = harnessKernel.getViewportDescriptor(vp.typeId);
+    const desc = pluginKernel.getViewportDescriptor(vp.typeId);
     const existingFloat = state.floating.find((f) => f.viewportId === viewportId);
     const nextZ = state.topZIndex + 1;
     const nextPreset =
@@ -1542,7 +1542,7 @@ export class LayoutService {
 
     if (drag.source === 'tear-off' && drag.tearOff) {
       const spec = drag.tearOff;
-      const desc = harnessKernel.getViewportDescriptor(spec.typeId);
+      const desc = pluginKernel.getViewportDescriptor(spec.typeId);
       const existing = desc?.singleton ? this.findViewportsByType(spec.typeId)[0] : undefined;
       let result: ViewportInstance;
 
@@ -1677,8 +1677,8 @@ export class LayoutService {
     const nonTerminals = scopedViewports
       .filter((v) => v.typeId !== TERMINAL_VIEWPORT_TYPE)
       .sort((a, b) => {
-        const da = harnessKernel.getViewportDescriptor(a.typeId);
-        const db = harnessKernel.getViewportDescriptor(b.typeId);
+        const da = pluginKernel.getViewportDescriptor(a.typeId);
+        const db = pluginKernel.getViewportDescriptor(b.typeId);
         return (da?.order ?? 100) - (db?.order ?? 100) || a.title.localeCompare(b.title);
       });
 
@@ -1692,7 +1692,7 @@ export class LayoutService {
     let nextTopZ = state.topZIndex;
 
     for (const v of nonTerminals) {
-      const desc = harnessKernel.getViewportDescriptor(v.typeId);
+      const desc = pluginKernel.getViewportDescriptor(v.typeId);
       const pos = desc?.defaultPosition ?? desc?.defaultDock ?? 'bottom';
       if (pos === 'left-drawer') {
         nextLeft = insertViewportIntoDrawer(nextLeft, v.id, Boolean(desc?.activateOnStartup));

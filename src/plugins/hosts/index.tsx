@@ -1,6 +1,6 @@
 import { Server } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
-import { definePlugin } from '../../harness';
+import { definePlugin } from '../../kernel';
 import { type LayoutService, useLayoutStore } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { HostsViewport } from './HostsViewport';

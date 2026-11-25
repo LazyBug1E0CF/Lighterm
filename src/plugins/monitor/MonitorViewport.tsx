@@ -27,9 +27,9 @@ import {
   X,
 } from 'lucide-react';
 import { useShellStore } from '../../core/shellService';
-import { usePluginConfig } from '../../harness';
-import { harnessKernel } from '../../harness/HarnessKernel';
-import type { ViewportComponentProps } from '../../harness/types';
+import { usePluginConfig } from '../../kernel';
+import { pluginKernel } from '../../kernel/PluginKernel';
+import type { ViewportComponentProps } from '../../kernel/types';
 import { layoutService } from '../../layout/layoutStore';
 import type { SystemStats } from '../../types';
 import { fetchSystemStats } from './monitorClient';
@@ -950,7 +950,7 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = ({ viewport }) 
   const isOutsideMonitorBounds = useCallback(
     (panelId: MonitorPanelId, clientX: number, clientY: number): boolean => {
       const vpType = getMonitorPanelViewportType(panelId);
-      if (!harnessKernel.getViewportDescriptor(vpType)) return false;
+      if (!pluginKernel.getViewportDescriptor(vpType)) return false;
       const asideEl = asideRef.current;
       if (!asideEl) return false;
       const rect = asideEl.getBoundingClientRect();
@@ -1253,7 +1253,7 @@ export const MonitorViewport: React.FC<ViewportComponentProps> = ({ viewport }) 
           )
         : 0;
     const extras = getPanelHeaderExtras(panelId, telemetry);
-    const canDetach = Boolean(harnessKernel.getViewportDescriptor(meta.viewportTypeId));
+    const canDetach = Boolean(pluginKernel.getViewportDescriptor(meta.viewportTypeId));
 
     return (
       <StatusPanelCard

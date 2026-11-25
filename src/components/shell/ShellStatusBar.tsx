@@ -1,7 +1,7 @@
 import React from 'react';
 import { Layers, Puzzle, Server, Terminal } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
-import { usePluginStatuses, useSlotItems } from '../../harness/HarnessContext';
+import { usePluginStatuses, useSlotItems } from '../../kernel/KernelContext';
 import { useLayoutStore } from '../../layout/layoutStore';
 import { getThemePreset } from '../../themes/presets';
 

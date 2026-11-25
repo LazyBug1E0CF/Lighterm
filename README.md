@@ -1,16 +1,16 @@
 # Lighterm
 
-A lightweight, cross-platform GUI terminal emulator and SSH/SFTP workbench built with **Tauri v2**, **Rust**, **React 19**, **TypeScript**, **Tailwind CSS v4**, and **xterm.js**, structured around an **everything-is-a-plugin** kernel inspired by `deepseek-harness` (**Cordis**).
+A lightweight, cross-platform GUI terminal emulator and SSH/SFTP workbench built with **Tauri v2**, **Rust**, **React 19**, **TypeScript**, **Tailwind CSS v4**, and **xterm.js**, structured around an **everything-is-a-plugin** kernel inspired by **Cordis**.
 
 ## Architecture
 
-### Minimal Core (`crates/lighterm-core` & `src/core/`, `src/harness/`, `src/layout/`)
+### Minimal Core (`crates/lighterm-core` & `src/core/`, `src/kernel/`, `src/layout/`)
 The core contains **only**:
 - **Shell Connections**: Local PTY (`portable-pty`) and async SSH2 (`russh`) connection pooling & active shell `SessionManager`
 - **Persistence & Config**: Atomic JSON persistence (`hosts.json` with `0600` Unix permissions, `settings.json`, `plugins.json`, and generic plugin JSON storage)
 - **Plugin Kernel**:
   - Rust: `CorePlugin` trait (`id`, `name`, `version`, `dependencies`, `on_activate`, `on_deactivate`, `on_host_invalidated`) & `PluginRegistry` (`crates/lighterm-core/src/plugin.rs`) with ID namespace validation, dependency verification, and cascading activation/deactivation
-  - Frontend: Cordis-inspired `HarnessKernel` (`src/harness/`) with `definePlugin`, `inject` / `provide`, `EffectScope` reversible cleanup, declarative viewport default positioning (`defaultPosition`: `left-drawer`, `right-drawer`, `bottom`, `top`, `left`, `right`, `center`, `float`), Settings `General`/`Plugins` sections & mountable collapsible Settings panels (`ctx.registerSettingsPage` with optional `mountTo`), standardized `PluginConfig` persistence (`plugin-configs.json` + `localStorage`), and live runtime toggling via **Plugin Manager** (`Ctrl+Shift+X`)
+  - Frontend: Cordis-inspired `PluginKernel` (`src/kernel/`) with `definePlugin`, `inject` / `provide`, `EffectScope` reversible cleanup, declarative viewport default positioning (`defaultPosition`: `left-drawer`, `right-drawer`, `bottom`, `top`, `left`, `right`, `center`, `float`), Settings `General`/`Plugins` sections & mountable collapsible Settings panels (`ctx.registerSettingsPage` with optional `mountTo`), standardized `PluginConfig` persistence (`plugin-configs.json` + `localStorage`), and live runtime toggling via **Plugin Manager** (`Ctrl+Shift+X`)
 - **Plugin Development Specification**: See [`docs/PLUGIN_DEVELOPMENT.md`](docs/PLUGIN_DEVELOPMENT.md) for the complete frontend/backend plugin contract, viewport layout guidelines, and Settings integration spec.
 - **AI Agent Skill (`skills/`)**: Install [`skills/lighterm-plugin-development`](skills/lighterm-plugin-development/SKILL.md) into any compatible AI coding agent (Claude Code, Cursor, Codex, Antigravity, Gemini CLI, etc.) — see [`skills/README.md`](skills/README.md) for setup instructions.
 - **Universal Viewport Layout Engine (`src/layout/`)**:

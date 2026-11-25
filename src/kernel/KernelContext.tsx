@@ -1,8 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from 'react';
-import { HarnessKernel, harnessKernel } from './HarnessKernel';
+import { PluginKernel, pluginKernel } from './PluginKernel';
 import type {
   CommandDescriptor,
-  HarnessSnapshot,
+  KernelSnapshot,
   PluginRuntimeStatus,
   PluginSettingsPageDescriptor,
   SlotContribution,
@@ -10,46 +10,46 @@ import type {
   ViewportDescriptor,
 } from './types';
 
-const HarnessContext = createContext<HarnessKernel>(harnessKernel);
+const KernelContext = createContext<PluginKernel>(pluginKernel);
 
-export const HarnessProvider: React.FC<{
-  kernel?: HarnessKernel;
+export const KernelProvider: React.FC<{
+  kernel?: PluginKernel;
   children: React.ReactNode;
-}> = ({ kernel = harnessKernel, children }) => (
-  <HarnessContext.Provider value={kernel}>{children}</HarnessContext.Provider>
+}> = ({ kernel = pluginKernel, children }) => (
+  <KernelContext.Provider value={kernel}>{children}</KernelContext.Provider>
 );
 
-export function useHarness(): HarnessKernel {
-  return useContext(HarnessContext);
+export function useKernel(): PluginKernel {
+  return useContext(KernelContext);
 }
 
-export function useHarnessSnapshot(): HarnessSnapshot {
-  const kernel = useHarness();
+export function useKernelSnapshot(): KernelSnapshot {
+  const kernel = useKernel();
   return useSyncExternalStore(kernel.subscribe, kernel.getSnapshot, kernel.getSnapshot);
 }
 
 export function useSlotItems(slot: SlotName): SlotContribution[] {
-  const snapshot = useHarnessSnapshot();
+  const snapshot = useKernelSnapshot();
   return snapshot.slots[slot];
 }
 
 export function usePluginStatuses(): PluginRuntimeStatus[] {
-  const snapshot = useHarnessSnapshot();
+  const snapshot = useKernelSnapshot();
   return snapshot.statuses;
 }
 
 export function useViewportDescriptors(): Record<string, ViewportDescriptor> {
-  const snapshot = useHarnessSnapshot();
+  const snapshot = useKernelSnapshot();
   return snapshot.viewports;
 }
 
 export function usePluginSettingsPages(): PluginSettingsPageDescriptor[] {
-  const snapshot = useHarnessSnapshot();
+  const snapshot = useKernelSnapshot();
   return snapshot.settingsPages;
 }
 
 export function useCommands(): CommandDescriptor[] {
-  const snapshot = useHarnessSnapshot();
+  const snapshot = useKernelSnapshot();
   return snapshot.commands;
 }
 
@@ -61,8 +61,8 @@ export function usePluginConfig<T extends Record<string, unknown>>(
   updateConfig: (patch: Partial<T>) => Promise<T>;
   resetConfig: () => Promise<T>;
 } {
-  const kernel = useHarness();
-  const snapshot = useHarnessSnapshot();
+  const kernel = useKernel();
+  const snapshot = useKernelSnapshot();
   const raw = snapshot.pluginConfigs[pluginId] ?? kernel.getRawPluginConfig(pluginId);
 
   const config = useMemo(

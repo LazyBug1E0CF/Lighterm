@@ -12,13 +12,13 @@ import {
 } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
 import {
-  useHarness,
+  useKernel,
   usePluginSettingsPages,
   usePluginStatuses,
   useViewportDescriptors,
   VIEWPORT_POSITION_LABELS,
   type ViewportDescriptor,
-} from '../../harness';
+} from '../../kernel';
 import { layoutService, useLayoutStore } from '../../layout/layoutStore';
 
 export const PluginManagerModal: React.FC = () => {
@@ -26,7 +26,7 @@ export const PluginManagerModal: React.FC = () => {
   const sessionCount = useShellStore((s) => s.sessionOrder.length);
   const hostCount = useShellStore((s) => s.hosts.length);
 
-  const harness = useHarness();
+  const kernel = useKernel();
   const plugins = usePluginStatuses();
   const descriptors = useViewportDescriptors();
   const settingsPages = usePluginSettingsPages();
@@ -189,7 +189,7 @@ export const PluginManagerModal: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
                 <ShieldCheck className="w-4 h-4 text-[var(--accent)] shrink-0" />
-                <span>Minimal Shell &amp; Harness Core</span>
+                <span>Minimal Shell &amp; Plugin Kernel</span>
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--bg-app)] text-[var(--accent)]">
                   core:shell + core:layout
                 </span>
@@ -303,7 +303,7 @@ export const PluginManagerModal: React.FC = () => {
                           role="switch"
                           aria-checked={plugin.enabled}
                           aria-label={`Toggle ${plugin.name}`}
-                          onClick={() => void harness.togglePlugin(plugin.id)}
+                          onClick={() => void kernel.togglePlugin(plugin.id)}
                           className={`h-7 px-3 rounded-md font-medium transition-colors ${
                             plugin.enabled
                               ? 'bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]/50 hover:bg-[var(--danger)]/20 hover:text-[var(--danger)] hover:border-[var(--danger)]/40'

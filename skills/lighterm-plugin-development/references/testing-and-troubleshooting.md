@@ -8,24 +8,24 @@ Standard Vitest + Rust test templates and fixes for the most common Lighterm plu
 
 Lighterm uses **Vitest** with `jsdom` (`src/__tests__/setup.ts` already sets up mocks/canvas stubs). Place plugin tests in `src/__tests__/<pluginName>.test.tsx`.
 
-### Standard Harness Unit / Layout Integration Test
+### Standard Kernel Unit / Layout Integration Test
 ```tsx
 import React from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act } from '@testing-library/react';
-import { harnessKernel } from '../harness';
+import { pluginKernel } from '../kernel';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
-import { bootstrapLightermHarness, resetLightermHarnessForTesting } from '../plugins';
+import { bootstrapLightermKernel, resetLightermKernelForTesting } from '../plugins';
 import { MY_VIEWPORT_TYPE } from '../plugins/my-plugin';
 
 describe('acme.my-plugin', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('opens at registered defaultPosition and returns on Reset Layout', async () => {
-    await bootstrapLightermHarness();
+    await bootstrapLightermKernel();
 
     let vpId = '';
     act(() => {
@@ -46,7 +46,7 @@ describe('acme.my-plugin', () => {
 ```
 
 ### Multi-Viewport & Tear-Off Drag Integration Pattern
-- Assert all plugin viewports via `harnessKernel.getPluginViewportDescriptors(pluginId)` and inspect per-viewport controls under `[data-plugin-viewports="<pluginId>"]` in `PluginManagerModal`.
+- Assert all plugin viewports via `pluginKernel.getPluginViewportDescriptors(pluginId)` and inspect per-viewport controls under `[data-plugin-viewports="<pluginId>"]` in `PluginManagerModal`.
 - To test tearing a sub-card out into the Left/Right Drawer in jsdom (`WorkspaceCanvas`), mock `getBoundingClientRect()` on the source viewport panel and target `[data-activity-rail="right"]` (so `shouldTearOffPanel` and `WorkspaceCanvas`'s bounding-rect fallback resolve the drop target), then fire `pointerDown` -> `pointerMove` -> `pointerUp` and verify both `layoutService.getViewportLocation(...)` and `onCommit` side effects.
 
 ### Standard Settings UI & Disable/Re-enable Test (`render(<App />)`)
@@ -60,7 +60,7 @@ it('renders Settings page in expected section, persists config, and disables cle
 
   await waitFor(() => {
     expect(useShellStore.getState().initialized).toBe(true);
-    expect(harnessKernel.isPluginActive('acme.my-plugin')).toBe(true);
+    expect(pluginKernel.isPluginActive('acme.my-plugin')).toBe(true);
   });
 
   fireEvent.click(screen.getByLabelText('Settings'));
@@ -83,7 +83,7 @@ it('renders Settings page in expected section, persists config, and disables cle
 
   // Exercise disable -> tab disappears and UI falls back cleanly to Appearance
   await act(async () => {
-    await harnessKernel.disablePlugin('acme.my-plugin');
+    await pluginKernel.disablePlugin('acme.my-plugin');
   });
   await waitFor(() => {
     expect(within(section).queryByRole('button', { name: 'My Plugin' })).toBeNull();
@@ -91,7 +91,7 @@ it('renders Settings page in expected section, persists config, and disables cle
 
   // Re-enable -> everything comes back without errors or duplicate registrations
   await act(async () => {
-    await harnessKernel.enablePlugin('acme.my-plugin');
+    await pluginKernel.enablePlugin('acme.my-plugin');
   });
   expect(await within(section).findByRole('button', { name: 'My Plugin' })).toBeTruthy();
 });
@@ -170,6 +170,6 @@ cargo test --workspace
 | Startup drawer plugin missing until after async load / wrong drawer order | `ctx.registerViewport(...)` was placed after an `await` inside `activate` | Keep all `registerViewport`, `registerSettingsPage`, `registerSlot`, and `registerCommand` calls synchronous at the top of `activate(ctx)` |
 | Clicking button/input inside a viewport tab/card accidentally starts dragging the panel | Outer viewport header listens to `onPointerDown` for floating/dock dragging | Add `onPointerDown={(e) => e.stopPropagation()}` or `data-no-drag="true"` on interactive controls |
 | Plugin works on Tauri desktop, throws or stalls in Vitest / browser preview | Code called `invokeTauri(...)` directly without checking `isTauriRuntime()` | Guard every Tauri call with `if (isTauriRuntime()) { ... } else { /* mock/localStorage */ }` |
-| Second Vitest test fails with stale plugin data or duplicated commands | Plugin store/client module state was not cleared between tests | Export a `resetForTesting()` helper on your client store and call it inside `resetLightermHarnessForTesting()` in `src/plugins/index.ts` |
+| Second Vitest test fails with stale plugin data or duplicated commands | Plugin store/client module state was not cleared between tests | Export a `resetForTesting()` helper on your client store and call it inside `resetLightermKernelForTesting()` in `src/plugins/index.ts` |
 | Plugin toggle state snaps back or backend errors with `PluginDisabled` on Tauri | `PluginDefinition.id` != `CorePlugin::id()`, or `alwaysOn` differs between TS and Rust | Keep `id` and `alwaysOn` identical in both `definePlugin(...)` and `impl CorePlugin` |
 | `Tauri command` returns invalid args or `missing required key hostId` | Rust used `snake_case` param `host_id` and JS passed `{ host_id }` instead of `{ hostId }` | Tauri v2 converts Rust `snake_case` argument names to JS `camelCase` automatically |

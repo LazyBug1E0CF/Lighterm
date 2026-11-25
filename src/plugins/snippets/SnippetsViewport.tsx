@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CornerDownLeft, Pencil, Play, Plus, Search, Trash2, X } from 'lucide-react';
 import { shellService } from '../../core/shellService';
-import { usePluginConfig } from '../../harness';
-import type { ViewportComponentProps } from '../../harness/types';
+import { usePluginConfig } from '../../kernel';
+import type { ViewportComponentProps } from '../../kernel/types';
 import type { Snippet } from '../../types';
 import {
   DEFAULT_SNIPPETS_CONFIG,

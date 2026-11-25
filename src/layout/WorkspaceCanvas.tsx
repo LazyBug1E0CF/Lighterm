@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Minimize2, Plus, Terminal } from 'lucide-react';
 import { shellService, useShellStore } from '../core/shellService';
-import { useViewportDescriptors } from '../harness/HarnessContext';
+import { useViewportDescriptors } from '../kernel/KernelContext';
 import { TERMINAL_VIEWPORT_TYPE } from '../plugins/terminal/terminalService';
 import { DockGroupView } from './DockGroupView';
 import {

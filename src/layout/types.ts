@@ -1,4 +1,4 @@
-import type { PreferredDockPosition, ViewportInstanceRef } from '../harness/types';
+import type { PreferredDockPosition, ViewportInstanceRef } from '../kernel/types';
 import type { QuickShellLayoutPreset, SplitDirection } from '../types';
 
 export type DrawerSide = 'left' | 'right';

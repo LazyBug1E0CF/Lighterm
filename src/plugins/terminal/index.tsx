@@ -1,7 +1,7 @@
 import React from 'react';
 import { Columns2, Rows2, Terminal } from 'lucide-react';
 import { type ShellService, useShellStore } from '../../core/shellService';
-import { definePlugin } from '../../harness';
+import { definePlugin } from '../../kernel';
 import type { LayoutService } from '../../layout/layoutStore';
 import { matchesShortcut } from '../../utils/shortcuts';
 import { TERMINAL_VIEWPORT_TYPE, TerminalPluginService } from './terminalService';

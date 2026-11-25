@@ -15,8 +15,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
-import { useHarness } from '../../harness/HarnessContext';
-import type { ViewportComponentProps } from '../../harness/types';
+import { useKernel } from '../../kernel/KernelContext';
+import type { ViewportComponentProps } from '../../kernel/types';
 import { layoutService } from '../../layout/layoutStore';
 import { getThemePreset, hexWithAlpha } from '../../themes/presets';
 import { base64ToBytes, utf8ToBase64 } from '../../utils/base64';
@@ -28,7 +28,7 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
   isActive,
   isFloating,
 }) => {
-  const harness = useHarness();
+  const kernel = useKernel();
   const sessionId = String(viewport.params?.sessionId ?? '');
   const settings = useShellStore((s) => s.settings);
   const statusMsg = useShellStore((s) => s.sessionMessages[sessionId]);
@@ -48,7 +48,7 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
 
   const theme = useMemo(() => getThemePreset(settings.themeId), [settings.themeId]);
   const fitSyncRef = useRef<((notifyBackend?: boolean) => void) | null>(null);
-  const termService = harness.getService<TerminalPluginService>('terminal:service');
+  const termService = kernel.getService<TerminalPluginService>('terminal:service');
 
   // Mount xterm instance for this sessionId.
   // Never closes backend session on unmount so dragging/docking/floating preserves the shell!

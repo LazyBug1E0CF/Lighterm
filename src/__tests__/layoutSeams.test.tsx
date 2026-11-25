@@ -2,11 +2,11 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from '../App';
 import { useShellStore } from '../core/shellService';
-import { harnessKernel } from '../harness/HarnessKernel';
+import { pluginKernel } from '../kernel/PluginKernel';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import {
   registerBuiltinPlugins,
-  resetLightermHarnessForTesting,
+  resetLightermKernelForTesting,
   terminalPlugin,
 } from '../plugins';
 import { MONITOR_VIEWPORT_TYPE } from '../plugins/monitor';
@@ -30,7 +30,7 @@ beforeAll(() => {
 describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('uses overlay drawer sashes, 1px split dividers, and borderless dock group containers', async () => {
@@ -185,10 +185,10 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
 
     // 3) Simulate Vite HMR re-evaluating plugins/index.ts & terminal/index.tsx: both buttons must keep working cleanly
     act(() => {
-      registerBuiltinPlugins(harnessKernel);
-      harnessKernel.register({ ...terminalPlugin });
+      registerBuiltinPlugins(pluginKernel);
+      pluginKernel.register({ ...terminalPlugin });
     });
-    expect(harnessKernel.isPluginActive(terminalPlugin.id)).toBe(true);
+    expect(pluginKernel.isPluginActive(terminalPlugin.id)).toBe(true);
 
     fireEvent.click(screen.getByLabelText('Close Terminal 1'));
     expect(await screen.findByText(/No central viewports open/i)).toBeTruthy();

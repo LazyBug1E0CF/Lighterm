@@ -1,6 +1,6 @@
 import React from 'react';
 import { GripHorizontal, X } from 'lucide-react';
-import { useViewportDescriptors } from '../harness/HarnessContext';
+import { useViewportDescriptors } from '../kernel/KernelContext';
 import { layoutService, useLayoutStore } from './layoutStore';
 import type { FloatingViewportItem } from './types';
 import { ViewportPositionMenu } from './ViewportPositionMenu';

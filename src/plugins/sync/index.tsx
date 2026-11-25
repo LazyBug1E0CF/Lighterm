@@ -1,7 +1,7 @@
 import React from 'react';
 import { Cloud, CloudAlert, Loader2 } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
-import { definePlugin } from '../../harness';
+import { definePlugin } from '../../kernel';
 import { SYNC_PLUGIN_ID, syncClient, useSyncPluginStore } from './syncClient';
 import { SyncSettingsPage } from './SyncSettingsPage';
 

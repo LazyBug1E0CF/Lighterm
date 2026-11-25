@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ViewportInstanceRef } from '../harness/types';
+import type { ViewportInstanceRef } from '../kernel/types';
 import {
   computeCardDisplacementY,
   computeDragTargetIndex,

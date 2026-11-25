@@ -1,6 +1,6 @@
 import React from 'react';
 import { RotateCcw } from 'lucide-react';
-import { type PluginSettingsPageProps, usePluginConfig } from '../../harness';
+import { type PluginSettingsPageProps, usePluginConfig } from '../../kernel';
 import { DEFAULT_SFTP_CONFIG, sftpClient } from './sftpClient';
 
 export const SftpSettingsPage: React.FC<PluginSettingsPageProps> = ({ pluginId }) => {

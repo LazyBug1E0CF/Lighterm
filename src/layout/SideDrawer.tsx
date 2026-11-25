@@ -13,8 +13,8 @@ import {
   X,
 } from 'lucide-react';
 import { shellService } from '../core/shellService';
-import { usePluginStatuses, useViewportDescriptors } from '../harness/HarnessContext';
-import type { PluginIconComponent, ViewportDescriptor } from '../harness/types';
+import { usePluginStatuses, useViewportDescriptors } from '../kernel/KernelContext';
+import type { PluginIconComponent, ViewportDescriptor } from '../kernel/types';
 import { animateViewportReveal } from './layoutAnimator';
 import { layoutService, useLayoutStore } from './layoutStore';
 import type { DrawerSide } from './types';

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Code2, History, Layers, Search, Server, Terminal } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
 import { workspaceManager } from '../../core/workspaceManager';
-import { useCommands } from '../../harness/HarnessContext';
+import { useCommands } from '../../kernel/KernelContext';
 import { layoutService } from '../../layout/layoutStore';
 
 interface PaletteItem {

@@ -6,14 +6,14 @@ import { App } from '../App';
 import { shellService, useShellStore } from '../core/shellService';
 import {
   definePlugin,
-  harnessKernel,
+  pluginKernel,
   usePluginConfig,
   type PluginSettingsPageProps,
   type ViewportComponentProps,
-} from '../harness';
+} from '../kernel';
 import { collectGroups, findGroupContainingViewport } from '../layout/dockTree';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
-import { bootstrapLightermHarness, resetLightermHarnessForTesting } from '../plugins';
+import { bootstrapLightermKernel, resetLightermKernelForTesting } from '../plugins';
 import { HOSTS_VIEWPORT_TYPE } from '../plugins/hosts';
 import { MONITOR_VIEWPORT_TYPE, useMonitorPanelStore } from '../plugins/monitor';
 import { useSftpPluginStore } from '../plugins/sftp/sftpClient';
@@ -42,14 +42,14 @@ const CustomSettingsView: React.FC<PluginSettingsPageProps> = ({ pluginId }) => 
 describe('Standardized Plugin System, Settings Plugins Section & Default Viewport Positions', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('places viewports at registered defaultPosition (left-drawer, right-drawer, bottom, float), preserves bottom split, and resets layout cleanly', async () => {
-    await bootstrapLightermHarness();
+    await bootstrapLightermKernel();
 
     act(() => {
-      harnessKernel.register(
+      pluginKernel.register(
         definePlugin({
           id: 'acme.bottom-logs',
           name: 'Bottom Logs',
@@ -72,7 +72,7 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
         }),
       );
 
-      harnessKernel.register(
+      pluginKernel.register(
         definePlugin({
           id: 'acme.float-calc',
           name: 'Floating Calculator',
@@ -154,10 +154,10 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
   });
 
   it('auto-mounts openOnStartup drawer viewport when an initially disabled plugin is enabled at runtime', async () => {
-    await bootstrapLightermHarness();
+    await bootstrapLightermKernel();
 
     act(() => {
-      harnessKernel.register(
+      pluginKernel.register(
         definePlugin({
           id: 'acme.deferred-drawer',
           name: 'Deferred Drawer Tool',
@@ -181,11 +181,11 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
       );
     });
 
-    expect(harnessKernel.isPluginActive('acme.deferred-drawer')).toBe(false);
+    expect(pluginKernel.isPluginActive('acme.deferred-drawer')).toBe(false);
     expect(layoutService.findViewportsByType('acme.deferred.panel')).toHaveLength(0);
 
     await act(async () => {
-      await harnessKernel.enablePlugin('acme.deferred-drawer');
+      await pluginKernel.enablePlugin('acme.deferred-drawer');
     });
 
     const mounted = layoutService.findViewportsByType('acme.deferred.panel');
@@ -198,11 +198,11 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
-      expect(harnessKernel.isPluginActive('lighterm.sftp')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.sftp')).toBe(true);
     });
 
     act(() => {
-      harnessKernel.register(
+      pluginKernel.register(
         definePlugin({
           id: 'acme.core-always',
           name: 'Always-On Core Addon',
@@ -221,7 +221,7 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
         }),
       );
 
-      harnessKernel.register(
+      pluginKernel.register(
         definePlugin({
           id: 'acme.custom-cfg',
           name: 'Custom Configurable',
@@ -240,7 +240,7 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
         }),
       );
 
-      harnessKernel.register(
+      pluginKernel.register(
         definePlugin({
           id: 'acme.term-addon',
           name: 'Terminal Addon',
@@ -343,7 +343,7 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
 
     // Disabling the currently viewed plugin removes its tab and safely falls back to Appearance
     await act(async () => {
-      await harnessKernel.disablePlugin('lighterm.sftp');
+      await pluginKernel.disablePlugin('lighterm.sftp');
     });
 
     await waitFor(() => {
@@ -353,7 +353,7 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
 
     // Re-enabling restores SFTP Browser to Plugins section
     await act(async () => {
-      await harnessKernel.enablePlugin('lighterm.sftp');
+      await pluginKernel.enablePlugin('lighterm.sftp');
     });
     expect(await within(pluginsSection).findByRole('button', { name: 'SFTP Browser' })).toBeTruthy();
 
@@ -426,13 +426,13 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
-      expect(harnessKernel.isPluginActive('lighterm.monitor')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.monitor')).toBe(true);
     });
 
     expect(await screen.findByText('lighterm-local')).toBeTruthy();
 
     // System Status registers 7 distinct viewports (main dashboard + 6 telemetry sub-viewports)
-    const monitorDescriptors = harnessKernel.getPluginViewportDescriptors('lighterm.monitor');
+    const monitorDescriptors = pluginKernel.getPluginViewportDescriptors('lighterm.monitor');
     expect(monitorDescriptors.map((d) => d.typeId)).toEqual([
       'monitor.panel',
       'monitor.host',

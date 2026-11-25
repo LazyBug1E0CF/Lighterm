@@ -14,7 +14,7 @@ import {
 import { shellService } from '../../core/shellService';
 import { useWindowStore, windowControls } from '../../core/windowControls';
 import { workspaceManager } from '../../core/workspaceManager';
-import { usePluginStatuses, useSlotItems } from '../../harness/HarnessContext';
+import { usePluginStatuses, useSlotItems } from '../../kernel/KernelContext';
 import { collectGroups } from '../../layout/dockTree';
 import { layoutService, useLayoutStore } from '../../layout/layoutStore';
 import type { WorkspaceState } from '../../layout/types';
@@ -415,7 +415,7 @@ export const ShellTopBar: React.FC = () => {
         />
       </form>
 
-      {/* Dynamic Plugin Topbar Slot + Core Harness Controls */}
+      {/* Dynamic Plugin Topbar Slot + Core Kernel Controls */}
       <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-[var(--border-subtle)]">
         {topbarSlots.map((slot) => (
           <React.Fragment key={`${slot.pluginId}:${slot.id}`}>{slot.render()}</React.Fragment>

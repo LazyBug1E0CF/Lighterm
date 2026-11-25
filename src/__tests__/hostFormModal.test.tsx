@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HostFormModal } from '../components/hosts/HostFormModal';
 import { shellService, useShellStore } from '../core/shellService';
-import { resetLightermHarnessForTesting } from '../plugins';
+import { resetLightermKernelForTesting } from '../plugins';
 import type { HostConfig } from '../types';
 
 function makeHost(overrides: Partial<HostConfig> = {}): HostConfig {
@@ -21,7 +21,7 @@ function makeHost(overrides: Partial<HostConfig> = {}): HostConfig {
 describe('HostFormModal existing group dropdown combobox', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('hides the dropdown toggle when no hosts exist and allows custom free-text group input', async () => {

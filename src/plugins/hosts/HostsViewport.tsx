@@ -2,8 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Bookmark, Layers, Pencil, Play, Plus, Search, Server, Trash2 } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
 import { workspaceManager } from '../../core/workspaceManager';
-import { useSlotItems } from '../../harness/HarnessContext';
-import type { ViewportComponentProps } from '../../harness/types';
+import { useSlotItems } from '../../kernel/KernelContext';
+import type { ViewportComponentProps } from '../../kernel/types';
 import { useLayoutStore } from '../../layout/layoutStore';
 import type { HostConfig } from '../../types';
 

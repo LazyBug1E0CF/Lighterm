@@ -18,7 +18,7 @@ import {
   usePluginConfig,
   type PluginSettingsPageProps,
   type ViewportComponentProps,
-} from '../../harness';
+} from '../../kernel';
 
 export const QUICK_NOTES_VIEWPORT_TYPE = 'acme.quick-notes.panel';
 const LS_NOTES_KEY = 'lighterm:quick-notes-text';
@@ -211,14 +211,14 @@ export const quickNotesPlugin = definePlugin({
 
 ---
 
-## 2. Wire into Harness (`src/plugins/index.ts`)
+## 2. Wire into Plugin Kernel (`src/plugins/index.ts`)
 
 Add the registration inside `registerBuiltinPlugins`:
 
 ```ts
 import { quickNotesPlugin } from './quick-notes';
 
-export function registerBuiltinPlugins(kernel = harnessKernel): void {
+export function registerBuiltinPlugins(kernel = pluginKernel): void {
   kernel.provideCoreService('core:shell', shellService);
   kernel.provideCoreService('core:layout', layoutService);
 

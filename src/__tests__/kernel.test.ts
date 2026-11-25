@@ -1,15 +1,15 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { definePlugin, HarnessKernel } from '../harness';
-import type { PluginDefinition } from '../harness/types';
+import { definePlugin, PluginKernel } from '../kernel';
+import type { PluginDefinition } from '../kernel/types';
 
 const DummyIcon: React.FC<{ className?: string }> = () => null;
 const DummyComp: React.FC = () => null;
 
-describe('HarnessKernel (everything-is-a-plugin)', () => {
+describe('PluginKernel (everything-is-a-plugin)', () => {
   it('resolves inject/provide dependencies, disposes EffectScope on disable, and cascades deactivation', async () => {
     window.localStorage.clear();
-    const kernel = new HarnessKernel();
+    const kernel = new PluginKernel();
     kernel.provideCoreService('core:shell', { name: 'shell' });
 
     const cleanupSpy = vi.fn();
@@ -105,7 +105,7 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
       'lighterm:enabled-plugins',
       JSON.stringify({ 'test.always': false }),
     );
-    const kernel = new HarnessKernel();
+    const kernel = new PluginKernel();
     kernel.provideCoreService('core:shell', { name: 'shell' });
 
     const disposeSpy = vi.fn();
@@ -136,7 +136,7 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
 
   it('handles repeated register() calls across HMR without dropping active plugins or leaking listeners', async () => {
     window.localStorage.clear();
-    const kernel = new HarnessKernel();
+    const kernel = new PluginKernel();
     kernel.provideCoreService('core:shell', { name: 'shell' });
 
     let baseV1Activations = 0;
@@ -236,7 +236,7 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
 
   it('validates plugin IDs, reserved core:* services, cross-plugin viewport conflicts, settings pages, and plugin configs', async () => {
     window.localStorage.clear();
-    const kernel = new HarnessKernel();
+    const kernel = new PluginKernel();
     kernel.provideCoreService('core:shell', { name: 'shell' });
 
     // 1. Invalid plugin IDs rejected
@@ -447,7 +447,7 @@ describe('HarnessKernel (everything-is-a-plugin)', () => {
 
   it('supports multiple distinct viewports per plugin, rejects intra-plugin duplicate typeId, and cleans up all on disable', async () => {
     window.localStorage.clear();
-    const kernel = new HarnessKernel();
+    const kernel = new PluginKernel();
 
     kernel.register(
       definePlugin({

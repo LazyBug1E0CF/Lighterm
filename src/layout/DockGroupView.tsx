@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { GripVertical, Layers, PictureInPicture2, Search, X } from 'lucide-react';
 import { useShellStore } from '../core/shellService';
-import { useHarness, useViewportDescriptors } from '../harness/HarnessContext';
+import { useKernel, useViewportDescriptors } from '../kernel/KernelContext';
 import {
   TERMINAL_VIEWPORT_TYPE,
   type TerminalPluginService,
@@ -43,8 +43,8 @@ export const DockGroupView: React.FC<DockGroupViewProps> = ({
   const sessions = useShellStore((s) => s.sessions);
   const sessionStatuses = useShellStore((s) => s.sessionStatuses);
   const descriptors = useViewportDescriptors();
-  const harness = useHarness();
-  const termService = harness.getService<TerminalPluginService>('terminal:service');
+  const kernel = useKernel();
+  const termService = kernel.getService<TerminalPluginService>('terminal:service');
   const contentHostRef = useRef<HTMLDivElement | null>(null);
 
   const activeVp = viewports[group.activeViewportId] ?? viewports[group.viewportIds[0]];

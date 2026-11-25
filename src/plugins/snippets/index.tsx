@@ -1,6 +1,6 @@
 import { Code2 } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
-import { definePlugin } from '../../harness';
+import { definePlugin } from '../../kernel';
 import type { LayoutService } from '../../layout/layoutStore';
 import type { Snippet } from '../../types';
 import {

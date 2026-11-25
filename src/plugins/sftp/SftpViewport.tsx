@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { pickOpenFile, pickSaveFile } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
-import type { ViewportComponentProps } from '../../harness/types';
+import type { ViewportComponentProps } from '../../kernel/types';
 import type { SftpEntry } from '../../types';
 import { sftpClient, useSftpPluginStore } from './sftpClient';
 

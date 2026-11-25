@@ -7,7 +7,7 @@ import {
   useSlotItems,
   type PluginIconComponent,
   type PluginSettingsPageDescriptor,
-} from '../../harness';
+} from '../../kernel';
 import { THEME_PRESETS } from '../../themes/presets';
 import type { ShortcutMap } from '../../types';
 import { DEFAULT_SHORTCUTS, formatKeyboardEvent } from '../../utils/shortcuts';

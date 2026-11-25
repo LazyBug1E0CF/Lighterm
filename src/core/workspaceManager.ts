@@ -1,4 +1,4 @@
-import { harnessKernel } from '../harness/HarnessKernel';
+import { pluginKernel } from '../kernel/PluginKernel';
 import { collectGroups } from '../layout/dockTree';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import type {
@@ -318,7 +318,7 @@ export const workspaceManager = {
 
       const hosts = useShellStore.getState().hosts;
       const terminalPluginId =
-        harnessKernel.getViewportDescriptor(TERMINAL_VIEWPORT_TYPE)?.pluginId ?? 'lighterm.terminal';
+        pluginKernel.getViewportDescriptor(TERMINAL_VIEWPORT_TYPE)?.pluginId ?? 'lighterm.terminal';
 
       const createdEntries = await Promise.all(
         saved.slots.map(async (slot) => {

@@ -1,6 +1,6 @@
 import { History } from 'lucide-react';
 import type { ShellService } from '../../core/shellService';
-import { definePlugin, harnessKernel } from '../../harness';
+import { definePlugin, pluginKernel } from '../../kernel';
 import type { LayoutService } from '../../layout/layoutStore';
 import type { HistoryEntry } from '../../types';
 import { CommandTracker } from '../../utils/commandTracker';
@@ -112,13 +112,13 @@ export const historyPlugin = definePlugin({
 
     const unsubChange = historyClient.onChange(syncCommands);
     let prevPaletteLimit = ctx.getConfig(DEFAULT_HISTORY_CONFIG).paletteHistoryLimit;
-    const unsubConfig = harnessKernel.subscribe(() => {
-      if (!harnessKernel.isPluginActive(ctx.pluginId)) return;
+    const unsubConfig = pluginKernel.subscribe(() => {
+      if (!pluginKernel.isPluginActive(ctx.pluginId)) return;
       const nextLimit = ctx.getConfig(DEFAULT_HISTORY_CONFIG).paletteHistoryLimit;
       if (nextLimit !== prevPaletteLimit) {
         prevPaletteLimit = nextLimit;
         queueMicrotask(() => {
-          if (harnessKernel.isPluginActive(ctx.pluginId)) {
+          if (pluginKernel.isPluginActive(ctx.pluginId)) {
             syncCommands(useHistoryPluginStore.getState().history);
           }
         });

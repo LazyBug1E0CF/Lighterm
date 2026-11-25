@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CornerDownLeft, History, Play, Search, Trash2 } from 'lucide-react';
 import { shellService } from '../../core/shellService';
-import { usePluginConfig } from '../../harness';
-import type { ViewportComponentProps } from '../../harness/types';
+import { usePluginConfig } from '../../kernel';
+import type { ViewportComponentProps } from '../../kernel/types';
 import {
   DEFAULT_HISTORY_CONFIG,
   historyClient,

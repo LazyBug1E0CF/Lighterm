@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { writeLs } from '../../core/ipc';
-import type { ViewportPosition } from '../../harness/types';
+import type { ViewportPosition } from '../../kernel/types';
 
 export const LS_MONITOR_PANELS = 'lighterm:monitor-panels';
 export const MONITOR_PROCESSES_VIEWPORT_TYPE = 'monitor.processes';

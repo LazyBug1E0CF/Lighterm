@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invokeTauri, isTauriRuntime, listenTauri, makeUuid } from '../../core/ipc';
-import { harnessKernel } from '../../harness/HarnessKernel';
+import { pluginKernel } from '../../kernel/PluginKernel';
 import type { SftpEntry, SftpTransferProgress } from '../../types';
 
 export interface SftpPluginConfig extends Record<string, unknown> {
@@ -162,7 +162,7 @@ export const sftpClient = {
   async openForHost(hostId: string, initialPath?: string): Promise<void> {
     const targetPath =
       initialPath ??
-      (harnessKernel.getPluginConfig('lighterm.sftp', DEFAULT_SFTP_CONFIG).defaultRemotePath ||
+      (pluginKernel.getPluginConfig('lighterm.sftp', DEFAULT_SFTP_CONFIG).defaultRemotePath ||
         '.');
     useSftpPluginStore.setState({ hostId, loading: true, error: null });
     try {

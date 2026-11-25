@@ -1,7 +1,7 @@
 import { shellService } from '../core/shellService';
 import { windowControls } from '../core/windowControls';
 import { workspaceManager } from '../core/workspaceManager';
-import { harnessKernel } from '../harness/HarnessKernel';
+import { pluginKernel } from '../kernel/PluginKernel';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import { historyPlugin } from './history';
 import { hostsPlugin } from './hosts';
@@ -14,7 +14,7 @@ import { terminalPlugin, TERMINAL_VIEWPORT_TYPE } from './terminal';
 let bootstrapPromise: Promise<void> | null = null;
 let unsubPluginActivated: (() => void) | null = null;
 
-export function registerBuiltinPlugins(kernel = harnessKernel): void {
+export function registerBuiltinPlugins(kernel = pluginKernel): void {
   kernel.provideCoreService('core:shell', shellService);
   kernel.provideCoreService('core:layout', layoutService);
 
@@ -28,18 +28,18 @@ export function registerBuiltinPlugins(kernel = harnessKernel): void {
 }
 
 // Populate plugin metadata immediately on module load before the first React render.
-registerBuiltinPlugins(harnessKernel);
+registerBuiltinPlugins(pluginKernel);
 
-export async function bootstrapLightermHarness(): Promise<void> {
+export async function bootstrapLightermKernel(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise;
 
   bootstrapPromise = (async () => {
-    registerBuiltinPlugins(harnessKernel);
+    registerBuiltinPlugins(pluginKernel);
     workspaceManager.installAutoSync();
 
     const isFreshBoot = Object.keys(useLayoutStore.getState().viewports).length === 0;
     const initTask = shellService.initialize();
-    const startTask = harnessKernel.start();
+    const startTask = pluginKernel.start();
 
     // Built-in drawer plugins activate synchronously on tick 0, so drawer viewports populate before first await.
     if (isFreshBoot) {
@@ -66,7 +66,7 @@ export async function bootstrapLightermHarness(): Promise<void> {
     }
 
     if (!unsubPluginActivated) {
-      unsubPluginActivated = harnessKernel.onPluginActivated((pluginId) => {
+      unsubPluginActivated = pluginKernel.onPluginActivated((pluginId) => {
         layoutService.mountStartupPluginViewports('all', pluginId);
       });
     }
@@ -80,12 +80,12 @@ export async function bootstrapLightermHarness(): Promise<void> {
   return bootstrapPromise;
 }
 
-export function resetLightermHarnessForTesting(): void {
+export function resetLightermKernelForTesting(): void {
   bootstrapPromise = null;
   unsubPluginActivated?.();
   unsubPluginActivated = null;
   workspaceManager.resetForTesting();
-  harnessKernel.resetForTesting();
+  pluginKernel.resetForTesting();
   layoutService.resetForTesting();
   shellService.resetForTesting();
   windowControls.resetForTesting();

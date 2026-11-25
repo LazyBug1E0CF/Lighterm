@@ -315,7 +315,7 @@ export const portNotesClient = {
 ```tsx
 import React, { useEffect } from 'react';
 import { Network } from 'lucide-react';
-import { definePlugin, usePluginConfig, type PluginSettingsPageProps, type ViewportComponentProps } from '../../harness';
+import { definePlugin, usePluginConfig, type PluginSettingsPageProps, type ViewportComponentProps } from '../../kernel';
 import { DEFAULT_PORT_NOTES_CONFIG, portNotesClient, usePortNotesStore } from './portNotesClient';
 
 export const PORT_NOTES_VIEWPORT_TYPE = 'acme.port-notes.panel';
@@ -420,4 +420,4 @@ export const portNotesPlugin = definePlugin({
 });
 ```
 
-Finally, register `portNotesPlugin` inside `registerBuiltinPlugins` in `src/plugins/index.ts`, and call `portNotesClient.resetForTesting()` inside `resetLightermHarnessForTesting()`.
+Finally, register `portNotesPlugin` inside `registerBuiltinPlugins` in `src/plugins/index.ts`, and call `portNotesClient.resetForTesting()` inside `resetLightermKernelForTesting()`.

@@ -189,7 +189,7 @@ export interface PluginRuntimeStatus {
   error?: string;
 }
 
-export interface HarnessSnapshot {
+export interface KernelSnapshot {
   started: boolean;
   revision: number;
   statuses: PluginRuntimeStatus[];

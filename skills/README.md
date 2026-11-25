@@ -62,7 +62,7 @@ Copy `skills/lighterm-plugin-development/` into your agent's configured `skills/
 skills/lighterm-plugin-development/
 ├── SKILL.md                                   # Core 5-step workflow & rules
 ├── references/
-│   ├── frontend-harness-and-layout.md         # HarnessKernel, ViewportPosition, Settings & IPC APIs
+│   ├── frontend-kernel-and-layout.md          # PluginKernel, ViewportPosition, Settings & IPC APIs
 │   ├── rust-backend-and-tauri-ipc.md          # CorePlugin trait, Storage, SSH pool & Tauri commands
 │   └── testing-and-troubleshooting.md         # Vitest + cargo test templates & common pitfalls
 └── examples/

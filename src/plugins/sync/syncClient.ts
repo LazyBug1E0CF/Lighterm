@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invokeTauri, isTauriRuntime, makeUuid, readLs, writeLs } from '../../core/ipc';
 import { createDefaultSettings, shellService } from '../../core/shellService';
-import { harnessKernel } from '../../harness/HarnessKernel';
+import { pluginKernel } from '../../kernel/PluginKernel';
 import type { AppSettings, HostConfig, SavedWorkspace, Snippet } from '../../types';
 import { base64ToBytes, utf8ToBase64 } from '../../utils/base64';
 
@@ -1114,9 +1114,9 @@ function runMockSyncOperation(action: 'sync' | 'push' | 'pull'): SyncOperationRe
 async function applyLiveReloadIfNeeded(result: SyncOperationResult): Promise<void> {
   if (!result.appliedLocal) return;
   await shellService.reloadAll();
-  await harnessKernel.reloadPluginConfigsFromBackend();
+  await pluginKernel.reloadPluginConfigsFromBackend();
   if (Object.keys(result.updatedPluginStates).length > 0) {
-    await harnessKernel.applyPluginEnabledStates(result.updatedPluginStates, SYNC_PLUGIN_ID);
+    await pluginKernel.applyPluginEnabledStates(result.updatedPluginStates, SYNC_PLUGIN_ID);
   }
 }
 

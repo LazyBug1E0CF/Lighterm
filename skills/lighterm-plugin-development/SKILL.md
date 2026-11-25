@@ -10,14 +10,14 @@ description: >-
 
 # Lighterm Plugin Development
 
-Lighterm uses a Cordis-inspired **everything-is-a-plugin** microkernel spanning a React 19 / TypeScript frontend (`src/harness/`) and an async Rust / Tauri v2 backend (`crates/lighterm-core/`).
+Lighterm uses a Cordis-inspired **everything-is-a-plugin** microkernel spanning a React 19 / TypeScript frontend (`src/kernel/`) and an async Rust / Tauri v2 backend (`crates/lighterm-core/`).
 
 ---
 
 ## Core Architectural Rules (Read Before Editing)
 
 1. **Zero Hardcoding in Core or Layout**: Never hardcode plugin IDs or viewport `typeId` strings in `src/core/`, `src/layout/`, or core Tauri commands (`hosts_save`, `hosts_delete` broadcast `CorePlugin::on_host_invalidated` automatically). Only wire plugins in `src/plugins/index.ts`, `Cargo.toml`, `src-tauri/Cargo.toml`, `src-tauri/src/commands.rs`, and `src-tauri/src/lib.rs`.
-2. **Reserved `core:*` Services**: Never call `ctx.provide('core:*', ...)`. `'core:shell'` and `'core:layout'` are reserved by `HarnessKernel` and throw at runtime.
+2. **Reserved `core:*` Services**: Never call `ctx.provide('core:*', ...)`. `'core:shell'` and `'core:layout'` are reserved by `PluginKernel` and throw at runtime.
 3. **Tick-0 Synchronous Registration**: Inside `activate(ctx)`, call `ctx.provide`, `ctx.registerViewport`, `ctx.registerSettingsPage`, `ctx.registerSlot`, and `ctx.registerCommand` **synchronously before any `await`** so initial UI chrome and startup drawers populate on frame 0.
 4. **Reversible `EffectScope` Cleanup**: Register disposers via `ctx.onCleanup(...)` for all `window` event listeners, timers, `shell.on*` / `listenTauri` subscriptions, and dynamic command lists so disabling/re-enabling a plugin leaves zero leaks.
 5. **Dual-Runtime Support**: Plugins run both inside Tauri desktop (`isTauriRuntime() === true`) and browser preview / Vitest (`isTauriRuntime() === false`). Every IPC client must provide a mock or `localStorage` (`readLs` / `writeLs`) fallback when `!isTauriRuntime()`.
@@ -93,10 +93,10 @@ Create `src/plugins/<name>/` with clean separation:
 6. **Wire into `src/plugins/index.ts`**:
    - Import `<name>Plugin` and pass it to `kernel.register(<name>Plugin)` inside `registerBuiltinPlugins`.
    - Re-export `<name>Plugin` if needed externally.
-   - If the plugin maintains a standalone store or service with module state, reset it inside `resetLightermHarnessForTesting()`.
+   - If the plugin maintains a standalone store or service with module state, reset it inside `resetLightermKernelForTesting()`.
 
 Detailed APIs and examples:
-- [Frontend Harness & Layout Reference](./references/frontend-harness-and-layout.md)
+- [Frontend Kernel & Layout Reference](./references/frontend-kernel-and-layout.md)
 - [Frontend-Only Plugin Example](./examples/frontend-only-plugin.md)
 
 ---
@@ -145,5 +145,5 @@ Detailed test recipes and common pitfall fixes:
 - [ ] No `'core:*'` services provided; `viewport.typeId` is unique.
 - [ ] All viewports explicitly declare `defaultPosition`; interactive controls inside headers/cards stop drag propagation.
 - [ ] Settings UI registered with `ctx.registerSettingsPage` (`order >= 60` for new extensions; optional `mountTo` for collapsible panel inside a host page) and module-level `DEFAULT_*_CONFIG`.
-- [ ] All listeners/timers/dynamic commands disposed in `ctx.onCleanup`; singleton state reset in `resetLightermHarnessForTesting()`.
+- [ ] All listeners/timers/dynamic commands disposed in `ctx.onCleanup`; singleton state reset in `resetLightermKernelForTesting()`.
 - [ ] `tsc --noEmit`, `vitest`, `vite build`, and (when Rust touched) `cargo test --workspace` all pass cleanly.

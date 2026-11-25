@@ -3,7 +3,7 @@ import type { BackendPluginInfo } from '../types';
 import {
   VIEWPORT_POSITIONS,
   type CommandDescriptor,
-  type HarnessSnapshot,
+  type KernelSnapshot,
   type PluginContext,
   type PluginDefinition,
   type PluginRuntimeStatus,
@@ -71,7 +71,7 @@ const EMPTY_SLOTS = (): Record<SlotName, SlotContribution[]> => ({
   'settings:tabs': [],
 });
 
-export class HarnessKernel {
+export class PluginKernel {
   private coreServices = new Map<string, unknown>();
   private pluginServices = new Map<string, { pluginId: string; impl: unknown }>();
   private plugins = new Map<string, PluginEntry>();
@@ -89,7 +89,7 @@ export class HarnessKernel {
   private activationListeners = new Set<(pluginId: string) => void>();
   private pendingActivations: string[] = [];
 
-  private snapshot: HarnessSnapshot = {
+  private snapshot: KernelSnapshot = {
     started: false,
     revision: 0,
     statuses: [],
@@ -925,7 +925,7 @@ export class HarnessKernel {
     return this.plugins.get(id)?.active ?? false;
   }
 
-  getSnapshot = (): HarnessSnapshot => this.snapshot;
+  getSnapshot = (): KernelSnapshot => this.snapshot;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -955,7 +955,7 @@ export class HarnessKernel {
   }
 }
 
-export const harnessKernel = new HarnessKernel();
+export const pluginKernel = new PluginKernel();
 
 if (import.meta.hot) {
   import.meta.hot.accept(() => {

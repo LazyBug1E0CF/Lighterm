@@ -9,10 +9,10 @@ import { ShellTopBar } from './components/shell/ShellTopBar';
 import { invokeTauri, isTauriRuntime } from './core/ipc';
 import { shellService, useShellStore } from './core/shellService';
 import { useWindowStore, windowControls } from './core/windowControls';
-import { HarnessProvider } from './harness/HarnessContext';
-import { harnessKernel } from './harness/HarnessKernel';
+import { KernelProvider } from './kernel/KernelContext';
+import { pluginKernel } from './kernel/PluginKernel';
 import { WorkspaceCanvas } from './layout/WorkspaceCanvas';
-import { bootstrapLightermHarness } from './plugins';
+import { bootstrapLightermKernel } from './plugins';
 import { getThemePreset, hexToRgba } from './themes/presets';
 import { matchesShortcut } from './utils/shortcuts';
 
@@ -22,7 +22,7 @@ const LightermShell: React.FC = () => {
   const maximized = useWindowStore((s) => s.maximized);
 
   useEffect(() => {
-    void bootstrapLightermHarness();
+    void bootstrapLightermKernel();
     void windowControls.initialize();
   }, []);
 
@@ -142,9 +142,9 @@ const LightermShell: React.FC = () => {
 };
 
 export const App: React.FC = () => (
-  <HarnessProvider kernel={harnessKernel}>
+  <KernelProvider kernel={pluginKernel}>
     <LightermShell />
-  </HarnessProvider>
+  </KernelProvider>
 );
 
 export default App;

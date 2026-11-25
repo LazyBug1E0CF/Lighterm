@@ -2,17 +2,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from '../App';
 import { useShellStore } from '../core/shellService';
-import { harnessKernel } from '../harness/HarnessKernel';
+import { pluginKernel } from '../kernel/PluginKernel';
 import { collectGroups, findGroupContainingViewport } from '../layout/dockTree';
 import { layoutService, useLayoutStore } from '../layout/layoutStore';
-import { resetLightermHarnessForTesting } from '../plugins';
+import { resetLightermKernelForTesting } from '../plugins';
 import { MONITOR_VIEWPORT_TYPE } from '../plugins/monitor';
 import { SFTP_VIEWPORT_TYPE } from '../plugins/sftp';
 
 describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    resetLightermHarnessForTesting();
+    resetLightermKernelForTesting();
   });
 
   it('renders collapsible left/right plugin drawers, adds any plugin viewport to drawers, floats/resizes/docks viewports, and toggles plugins live', async () => {
@@ -21,9 +21,9 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
       expect(useShellStore.getState().sessionOrder.length).toBeGreaterThanOrEqual(1);
-      expect(harnessKernel.isPluginActive('lighterm.terminal')).toBe(true);
-      expect(harnessKernel.isPluginActive('lighterm.hosts')).toBe(true);
-      expect(harnessKernel.isPluginActive('lighterm.monitor')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.terminal')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.hosts')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.monitor')).toBe(true);
     });
 
     // Verify Left & Right collapsible drawers and rail buttons exist
@@ -214,27 +214,27 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     expect(within(pluginModal).getByLabelText('SSH Hosts Manager Always On')).toBeTruthy();
     expect(within(pluginModal).queryByLabelText('Toggle Terminal Viewport')).toBeNull();
     expect(within(pluginModal).queryByLabelText('Toggle SSH Hosts Manager')).toBeNull();
-    expect(harnessKernel.isPluginActive('lighterm.terminal')).toBe(true);
-    expect(harnessKernel.isPluginActive('lighterm.hosts')).toBe(true);
+    expect(pluginKernel.isPluginActive('lighterm.terminal')).toBe(true);
+    expect(pluginKernel.isPluginActive('lighterm.hosts')).toBe(true);
 
     fireEvent.click(within(pluginModal).getByLabelText('Toggle System Status Panel'));
     await waitFor(() => {
-      expect(harnessKernel.isPluginActive('lighterm.monitor')).toBe(false);
+      expect(pluginKernel.isPluginActive('lighterm.monitor')).toBe(false);
       expect(screen.queryByLabelText('System Status Panel')).toBeNull();
     });
 
     fireEvent.click(within(pluginModal).getByLabelText('Toggle Command Snippets'));
     await waitFor(() => {
-      expect(harnessKernel.isPluginActive('lighterm.snippets')).toBe(false);
-      expect(harnessKernel.isPluginActive('lighterm.terminal')).toBe(true);
-      expect(harnessKernel.isPluginActive('lighterm.hosts')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.snippets')).toBe(false);
+      expect(pluginKernel.isPluginActive('lighterm.terminal')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.hosts')).toBe(true);
     });
 
     fireEvent.click(within(pluginModal).getByLabelText('Toggle Command Snippets'));
     fireEvent.click(within(pluginModal).getByLabelText('Toggle System Status Panel'));
     await waitFor(() => {
-      expect(harnessKernel.isPluginActive('lighterm.snippets')).toBe(true);
-      expect(harnessKernel.isPluginActive('lighterm.monitor')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.snippets')).toBe(true);
+      expect(pluginKernel.isPluginActive('lighterm.monitor')).toBe(true);
       expect(screen.getByLabelText('Split Horizontally')).toBeTruthy();
     });
   }, 30000);

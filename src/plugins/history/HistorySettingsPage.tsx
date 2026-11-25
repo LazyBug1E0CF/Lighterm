@@ -1,6 +1,6 @@
 import React from 'react';
 import { RotateCcw, Trash2 } from 'lucide-react';
-import { type PluginSettingsPageProps, usePluginConfig } from '../../harness';
+import { type PluginSettingsPageProps, usePluginConfig } from '../../kernel';
 import { DEFAULT_HISTORY_CONFIG, historyClient, useHistoryPluginStore } from './historyClient';
 
 export const HistorySettingsPage: React.FC<PluginSettingsPageProps> = ({ pluginId }) => {

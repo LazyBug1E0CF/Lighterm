@@ -1,16 +1,16 @@
-# Frontend Harness & Layout Reference
+# Frontend Kernel & Layout Reference
 
-Authoritative contract reference for Lighterm's frontend plugin harness (`src/harness/`), core shell service (`src/core/`), layout engine (`src/layout/`), and Settings UI (`src/components/settings/`).
+Authoritative contract reference for Lighterm's frontend plugin kernel (`src/kernel/`), core shell service (`src/core/`), layout engine (`src/layout/`), and Settings UI (`src/components/settings/`).
 
 ---
 
-## 1. Public Harness Exports (`src/harness`)
+## 1. Public Kernel Exports (`src/kernel`)
 
-Import everything from `'../../harness'` inside `src/plugins/<name>/`:
+Import everything from `'../../kernel'` inside `src/plugins/<name>/`:
 
-- **Functions & Kernel**: `definePlugin`, `validatePluginDefinition`, `isValidPluginId`, `PLUGIN_ID_PATTERN`, `HarnessKernel`, `harnessKernel`
-- **React Hooks & Provider**: `HarnessProvider`, `useHarness`, `useHarnessSnapshot`, `usePluginStatuses`, `useViewportDescriptors`, `usePluginSettingsPages`, `usePluginConfig`, `useSlotItems`, `useCommands`
-- **Constants & Types**: `VIEWPORT_POSITIONS`, `VIEWPORT_POSITION_LABELS`, `LightermServiceMap`, `PluginDefinition`, `PluginContext`, `PluginRuntimeStatus`, `PluginIconComponent`, `ViewportPosition`, `PreferredDockPosition`, `ViewportRegistration`, `ViewportDescriptor`, `ViewportInstanceRef`, `ViewportComponentProps`, `PluginSettingsPageDescriptor`, `PluginSettingsPageProps`, `SettingsMountTarget`, `SlotName`, `SlotContribution`, `CommandDescriptor`, `HarnessSnapshot`
+- **Functions & Kernel**: `definePlugin`, `validatePluginDefinition`, `isValidPluginId`, `PLUGIN_ID_PATTERN`, `PluginKernel`, `pluginKernel`
+- **React Hooks & Provider**: `KernelProvider`, `useKernel`, `useKernelSnapshot`, `usePluginStatuses`, `useViewportDescriptors`, `usePluginSettingsPages`, `usePluginConfig`, `useSlotItems`, `useCommands`
+- **Constants & Types**: `VIEWPORT_POSITIONS`, `VIEWPORT_POSITION_LABELS`, `LightermServiceMap`, `PluginDefinition`, `PluginContext`, `PluginRuntimeStatus`, `PluginIconComponent`, `ViewportPosition`, `PreferredDockPosition`, `ViewportRegistration`, `ViewportDescriptor`, `ViewportInstanceRef`, `ViewportComponentProps`, `PluginSettingsPageDescriptor`, `PluginSettingsPageProps`, `SettingsMountTarget`, `SlotName`, `SlotContribution`, `CommandDescriptor`, `KernelSnapshot`
 
 ---
 
@@ -34,8 +34,8 @@ export interface PluginDefinition {
 
 ### Kernel Guarantees & Constraints
 - **`definePlugin(def)`** immediately runs `validatePluginDefinition(def)` and throws if `id` fails `PLUGIN_ID_PATTERN` or if `name` / `version` / `activate` are invalid.
-- **Tick-0 Synchronous Activation**: `bootstrapLightermHarness()` runs synchronously until the first `await`, calling `harnessKernel.start()`, which runs `reconcileActivationsSync()`. Any plugin whose `activate(ctx)` registers viewports/pages/slots/commands synchronously is ready before frame 0 renders.
-- **Dependency Graph**: If any service in `inject` is missing, the plugin remains inactive until dependencies activate. When a dependency plugin disables, `HarnessKernel` cascades deactivation recursively.
+- **Tick-0 Synchronous Activation**: `bootstrapLightermKernel()` runs synchronously until the first `await`, calling `pluginKernel.start()`, which runs `reconcileActivationsSync()`. Any plugin whose `activate(ctx)` registers viewports/pages/slots/commands synchronously is ready before frame 0 renders.
+- **Dependency Graph**: If any service in `inject` is missing, the plugin remains inactive until dependencies activate. When a dependency plugin disables, `PluginKernel` cascades deactivation recursively.
 - **`ctx.provide(name, impl)`**: Throws if `name.startsWith('core:')`. `'core:shell'` and `'core:layout'` are kernel-reserved.
 - **`ctx.onCleanup(dispose)`**: Every disposer returned by `registerViewport`, `registerSettingsPage`, `registerSlot`, `registerCommand`, `provide`, plus `activate()`'s own optional return function and `onCleanup()` callbacks, runs automatically on disable or HMR reload.
 
@@ -98,7 +98,7 @@ export interface ViewportComponentProps {
 - `onClose?`: Callback fired after viewport closure; use to release backing resources (e.g., closing a linked shell session).
 
 ### Multi-Viewport Plugins & Sub-Panel Tear-Off
-- **Plugin Manager & Activity Rail Integration**: When a plugin registers multiple viewports, `harnessKernel.getPluginViewportDescriptors(pluginId)` returns all of them sorted by `order`. `SideDrawer`'s `+` menu groups multi-viewport plugins into a collapsible plugin row (collapsed by default) instead of flattening every sub-viewport at top level, and `PluginManagerModal` renders a default-collapsed `Plugin Viewports (N)` section with per-viewport `Left` / `Right` / `Bottom` / `Float` / `Open` controls.
+- **Plugin Manager & Activity Rail Integration**: When a plugin registers multiple viewports, `pluginKernel.getPluginViewportDescriptors(pluginId)` returns all of them sorted by `order`. `SideDrawer`'s `+` menu groups multi-viewport plugins into a collapsible plugin row (collapsed by default) instead of flattening every sub-viewport at top level, and `PluginManagerModal` renders a default-collapsed `Plugin Viewports (N)` section with per-viewport `Left` / `Right` / `Bottom` / `Float` / `Open` controls.
 - **Reference Implementation (`lighterm.monitor`)**: Registers both the aggregate dashboard `monitor.panel` (`openOnStartup: true`) and 6 modular sub-viewports (`monitor.host`, `monitor.cpu`, `monitor.memory`, `monitor.network`, `monitor.disks`, `monitor.processes`, `openOnStartup: false`). Any card can be dragged onto the Left/Right Activity Rail, Edge Split, Dock Compass, or open workspace to detach into an independent viewport, or merged back via `Return <Title> to System Status`.
 
 ### Preserved Bottom/Edge Split Behavior

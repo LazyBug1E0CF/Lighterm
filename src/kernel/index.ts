@@ -1,27 +1,27 @@
 export {
-  HarnessProvider,
+  KernelProvider,
   useCommands,
-  useHarness,
-  useHarnessSnapshot,
+  useKernel,
+  useKernelSnapshot,
   usePluginConfig,
   usePluginSettingsPages,
   usePluginStatuses,
   useSlotItems,
   useViewportDescriptors,
-} from './HarnessContext';
+} from './KernelContext';
 export {
   definePlugin,
-  HarnessKernel,
-  harnessKernel,
   isValidPluginId,
   PLUGIN_ID_PATTERN,
+  PluginKernel,
+  pluginKernel,
   validatePluginDefinition,
-} from './HarnessKernel';
+} from './PluginKernel';
 export {
   VIEWPORT_POSITION_LABELS,
   VIEWPORT_POSITIONS,
   type CommandDescriptor,
-  type HarnessSnapshot,
+  type KernelSnapshot,
   type LightermServiceMap,
   type PluginContext,
   type PluginDefinition,
