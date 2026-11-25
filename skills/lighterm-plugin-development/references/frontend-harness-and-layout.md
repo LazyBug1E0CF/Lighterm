@@ -98,7 +98,7 @@ export interface ViewportComponentProps {
 - `onClose?`: Callback fired after viewport closure; use to release backing resources (e.g., closing a linked shell session).
 
 ### Multi-Viewport Plugins & Sub-Panel Tear-Off
-- **Plugin Manager & Activity Rail Integration**: When a plugin registers multiple viewports, `harnessKernel.getPluginViewportDescriptors(pluginId)` returns all of them sorted by `order`, SideDrawer's `+` menu lists each viewport separately, and `PluginManagerModal` renders per-viewport `Left` / `Right` / `Bottom` / `Float` / `Open` controls.
+- **Plugin Manager & Activity Rail Integration**: When a plugin registers multiple viewports, `harnessKernel.getPluginViewportDescriptors(pluginId)` returns all of them sorted by `order`. `SideDrawer`'s `+` menu groups multi-viewport plugins into a collapsible plugin row (collapsed by default) instead of flattening every sub-viewport at top level, and `PluginManagerModal` renders a default-collapsed `Plugin Viewports (N)` section with per-viewport `Left` / `Right` / `Bottom` / `Float` / `Open` controls.
 - **Reference Implementation (`lighterm.monitor`)**: Registers both the aggregate dashboard `monitor.panel` (`openOnStartup: true`) and 6 modular sub-viewports (`monitor.host`, `monitor.cpu`, `monitor.memory`, `monitor.network`, `monitor.disks`, `monitor.processes`, `openOnStartup: false`). Any card can be dragged onto the Left/Right Activity Rail, Edge Split, Dock Compass, or open workspace to detach into an independent viewport, or merged back via `Return <Title> to System Status`.
 
 ### Preserved Bottom/Edge Split Behavior

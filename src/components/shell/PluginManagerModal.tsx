@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowDownToLine,
+  ChevronDown,
   Layers,
   PanelLeft,
   PanelRight,
@@ -30,8 +31,22 @@ export const PluginManagerModal: React.FC = () => {
   const descriptors = useViewportDescriptors();
   const settingsPages = usePluginSettingsPages();
   const viewports = useLayoutStore((s) => s.viewports);
+  const [expandedViewports, setExpandedViewports] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!open) {
+      setExpandedViewports((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+    }
+  }, [open]);
 
   if (!open) return null;
+
+  const togglePluginViewports = (pluginId: string) => {
+    setExpandedViewports((prev) => ({
+      ...prev,
+      [pluginId]: !prev[pluginId],
+    }));
+  };
 
   const openDescriptorViewport = (desc: ViewportDescriptor) => {
     if (desc.typeId === 'terminal.viewport') {
@@ -201,52 +216,19 @@ export const PluginManagerModal: React.FC = () => {
               const primaryDesc = pluginDescriptors[0];
               const hasViewport = Boolean(primaryDesc);
               const settingsPage = settingsPages.find((p) => p.pluginId === plugin.id);
+              const isViewportsExpanded = Boolean(expandedViewports[plugin.id]);
+              const viewportsListId = `plugin-viewports-list-${plugin.id}`;
 
               return (
                 <div
                   key={plugin.id}
                   data-plugin-card={plugin.id}
-                  className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/50 space-y-2"
+                  className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/50 space-y-1.5"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-[var(--text-primary)]">
-                          {plugin.name}
-                        </span>
-                        <span className="font-mono text-[10px] text-[var(--text-muted)]">
-                          {plugin.id}@{plugin.version}
-                        </span>
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            plugin.active
-                              ? 'bg-[var(--success)]/15 text-[var(--success)]'
-                              : plugin.missingDependencies.length > 0
-                                ? 'bg-[var(--warning)]/15 text-[var(--warning)]'
-                                : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'
-                          }`}
-                        >
-                          {plugin.active
-                            ? 'Active'
-                            : plugin.missingDependencies.length > 0
-                              ? 'Waiting Deps'
-                              : 'Disabled'}
-                        </span>
-                        {plugin.active && primaryDesc && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-elevated)] text-[var(--text-muted)]">
-                            Default: {VIEWPORT_POSITION_LABELS[primaryDesc.defaultPosition]}
-                          </span>
-                        )}
-                        {plugin.active && pluginDescriptors.length > 1 && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--accent)]/15 text-[var(--accent)]">
-                            {pluginDescriptors.length} Viewports
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                        {plugin.description}
-                      </p>
-                    </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-[var(--text-primary)] truncate min-w-0">
+                      {plugin.name}
+                    </span>
 
                     <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
                       {plugin.active && primaryDesc && (
@@ -334,84 +316,141 @@ export const PluginManagerModal: React.FC = () => {
                     </div>
                   </div>
 
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-mono text-[10px] text-[var(--text-muted)]">
+                      {plugin.id}@{plugin.version}
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                        plugin.active
+                          ? 'bg-[var(--success)]/15 text-[var(--success)]'
+                          : plugin.missingDependencies.length > 0
+                            ? 'bg-[var(--warning)]/15 text-[var(--warning)]'
+                            : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'
+                      }`}
+                    >
+                      {plugin.active
+                        ? 'Active'
+                        : plugin.missingDependencies.length > 0
+                          ? 'Waiting Deps'
+                          : 'Disabled'}
+                    </span>
+                    {plugin.active && primaryDesc && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-elevated)] text-[var(--text-muted)]">
+                        Default: {VIEWPORT_POSITION_LABELS[primaryDesc.defaultPosition]}
+                      </span>
+                    )}
+                    {plugin.active && pluginDescriptors.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => togglePluginViewports(plugin.id)}
+                        aria-expanded={isViewportsExpanded}
+                        aria-controls={viewportsListId}
+                        className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--accent)]/15 text-[var(--accent)] hover:bg-[var(--accent)]/25 transition-colors cursor-pointer"
+                      >
+                        {pluginDescriptors.length} Viewports
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    {plugin.description}
+                  </p>
+
                   {plugin.active && hasViewport && pluginDescriptors.length > 1 && (
                     <div
                       data-plugin-viewports={plugin.id}
                       className="pt-2 border-t border-[var(--border-subtle)]/60 space-y-1.5"
                     >
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                        Plugin Viewports ({pluginDescriptors.length})
-                      </div>
-                      <div className="grid grid-cols-1 gap-1">
-                        {pluginDescriptors.map((desc) => {
-                          const Icon = desc.icon;
-                          const instances = Object.values(viewports).filter(
-                            (v) => v.typeId === desc.typeId,
-                          );
-                          return (
-                            <div
-                              key={desc.typeId}
-                              data-plugin-viewport-row={desc.typeId}
-                              className="px-2 py-1.5 rounded border border-[var(--border-subtle)]/70 bg-[var(--bg-surface)]/70 flex items-center justify-between gap-2"
-                            >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <Icon className="w-3 h-3 text-[var(--accent)] shrink-0" />
-                                <span className="font-medium text-[var(--text-primary)] truncate">
-                                  {desc.title}
-                                </span>
-                                <code className="text-[10px] font-mono text-[var(--text-muted)]">
-                                  {desc.typeId}
-                                </code>
-                                <span className="px-1 py-0 rounded bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] shrink-0">
-                                  Default: {VIEWPORT_POSITION_LABELS[desc.defaultPosition]}
-                                </span>
+                      <button
+                        type="button"
+                        aria-expanded={isViewportsExpanded}
+                        aria-controls={viewportsListId}
+                        data-plugin-viewports-toggle={plugin.id}
+                        onClick={() => togglePluginViewports(plugin.id)}
+                        className="w-full py-1 px-1.5 -mx-1.5 rounded flex items-center justify-between gap-2 text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]/60 transition-colors cursor-pointer"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <ChevronDown
+                            className={`w-3.5 h-3.5 shrink-0 transition-transform ${
+                              isViewportsExpanded ? '' : '-rotate-90'
+                            }`}
+                          />
+                          <span>Plugin Viewports ({pluginDescriptors.length})</span>
+                        </span>
+                      </button>
+                      {isViewportsExpanded && (
+                        <div id={viewportsListId} className="grid grid-cols-1 gap-1">
+                          {pluginDescriptors.map((desc) => {
+                            const Icon = desc.icon;
+                            const instances = Object.values(viewports).filter(
+                              (v) => v.typeId === desc.typeId,
+                            );
+                            return (
+                              <div
+                                key={desc.typeId}
+                                data-plugin-viewport-row={desc.typeId}
+                                className="px-2 py-1.5 rounded border border-[var(--border-subtle)]/70 bg-[var(--bg-surface)]/70 flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Icon className="w-3 h-3 text-[var(--accent)] shrink-0" />
+                                  <span className="font-medium text-[var(--text-primary)] truncate">
+                                    {desc.title}
+                                  </span>
+                                  <code className="text-[10px] font-mono text-[var(--text-muted)]">
+                                    {desc.typeId}
+                                  </code>
+                                  <span className="px-1 py-0 rounded bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] shrink-0">
+                                    Default: {VIEWPORT_POSITION_LABELS[desc.defaultPosition]}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    aria-label={`Left Drawer Viewport ${desc.title}`}
+                                    onClick={() => dockDescriptorToDrawer(desc, 'left')}
+                                    className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                  >
+                                    Left
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Right Drawer Viewport ${desc.title}`}
+                                    onClick={() => dockDescriptorToDrawer(desc, 'right')}
+                                    className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                  >
+                                    Right
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Bottom Dock Viewport ${desc.title}`}
+                                    onClick={() => dockDescriptorToBottom(desc)}
+                                    className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                  >
+                                    Bottom
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Float Viewport ${desc.title}`}
+                                    onClick={() => floatDescriptorViewport(desc)}
+                                    className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                  >
+                                    Float
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Open Viewport ${desc.title}`}
+                                    onClick={() => openDescriptorViewport(desc)}
+                                    className="h-6 px-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-primary)] hover:border-[var(--accent)]"
+                                  >
+                                    {instances.length > 0 ? `Focus (${instances.length})` : 'Open'}
+                                  </button>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  aria-label={`Left Drawer Viewport ${desc.title}`}
-                                  onClick={() => dockDescriptorToDrawer(desc, 'left')}
-                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                >
-                                  Left
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Right Drawer Viewport ${desc.title}`}
-                                  onClick={() => dockDescriptorToDrawer(desc, 'right')}
-                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                >
-                                  Right
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Bottom Dock Viewport ${desc.title}`}
-                                  onClick={() => dockDescriptorToBottom(desc)}
-                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                >
-                                  Bottom
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Float Viewport ${desc.title}`}
-                                  onClick={() => floatDescriptorViewport(desc)}
-                                  className="h-6 px-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                >
-                                  Float
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Open Viewport ${desc.title}`}
-                                  onClick={() => openDescriptorViewport(desc)}
-                                  className="h-6 px-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-primary)] hover:border-[var(--accent)]"
-                                >
-                                  {instances.length > 0 ? `Focus (${instances.length})` : 'Open'}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronDown,
   GripVertical,
   PanelLeftClose,
   PanelRightClose,
@@ -12,8 +13,8 @@ import {
   X,
 } from 'lucide-react';
 import { shellService } from '../core/shellService';
-import { useViewportDescriptors } from '../harness/HarnessContext';
-import type { ViewportDescriptor } from '../harness/types';
+import { usePluginStatuses, useViewportDescriptors } from '../harness/HarnessContext';
+import type { PluginIconComponent, ViewportDescriptor } from '../harness/types';
 import { animateViewportReveal } from './layoutAnimator';
 import { layoutService, useLayoutStore } from './layoutStore';
 import type { DrawerSide } from './types';
@@ -29,8 +30,10 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
   const globalActiveId = useLayoutStore((s) => s.activeViewportId);
   const dragState = useLayoutStore((s) => s.dragState);
   const descriptors = useViewportDescriptors();
+  const pluginStatuses = usePluginStatuses();
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [expandedPluginGroups, setExpandedPluginGroups] = useState<Record<string, boolean>>({});
   const [resizing, setResizing] = useState(false);
   const asideRef = useRef<HTMLElement | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
@@ -39,7 +42,10 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
   const prevActiveIdRef = useRef<string | null>(globalActiveId);
 
   useEffect(() => {
-    if (!addMenuOpen) return;
+    if (!addMenuOpen) {
+      setExpandedPluginGroups((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
     const onDown = (e: MouseEvent) => {
       if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
         setAddMenuOpen(false);
@@ -187,6 +193,62 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
     window.addEventListener('pointercancel', onUp);
   };
 
+  const descriptorGroups = useMemo(() => {
+    const grouped = new Map<string, ViewportDescriptor[]>();
+    for (const desc of Object.values(descriptors)) {
+      const list = grouped.get(desc.pluginId);
+      if (list) {
+        list.push(desc);
+      } else {
+        grouped.set(desc.pluginId, [desc]);
+      }
+    }
+
+    return Array.from(grouped.entries())
+      .map(([pluginId, items]) => {
+        const sortedItems = [...items].sort(
+          (a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title),
+        );
+        const plugin = pluginStatuses.find((p) => p.id === pluginId);
+        return {
+          pluginId,
+          title: plugin?.name ?? sortedItems[0].title,
+          icon: (plugin?.icon ?? sortedItems[0].icon) as PluginIconComponent,
+          minOrder: Math.min(...sortedItems.map((d) => d.order ?? 100)),
+          items: sortedItems,
+        };
+      })
+      .sort((a, b) => a.minOrder - b.minOrder || a.title.localeCompare(b.title));
+  }, [descriptors, pluginStatuses]);
+
+  const renderDescriptorMenuItem = (desc: ViewportDescriptor, nested = false) => {
+    const Icon = desc.icon;
+    const existing = desc.singleton ? layoutService.findViewportsByType(desc.typeId)[0] : undefined;
+    const alreadyHere = Boolean(existing && visibleIds.includes(existing.id));
+
+    return (
+      <button
+        key={desc.typeId}
+        type="button"
+        role="menuitem"
+        onClick={() => handleAddDescriptor(desc)}
+        className={`w-full ${
+          nested ? 'px-2.5 py-1 rounded' : 'px-3 py-1.5'
+        } flex items-center justify-between gap-2 text-left text-[var(--text-primary)] hover:bg-[var(--accent)]/20`}
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <Icon className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+          <span className="truncate">
+            {desc.typeId === 'terminal.viewport' ? 'New Terminal' : desc.title}
+          </span>
+        </span>
+        {alreadyHere && (
+          <span className="text-[10px] text-[var(--text-muted)] shrink-0">Here</span>
+        )}
+      </button>
+    );
+  };
+
   const railElement = (
     <div
       data-activity-rail={side}
@@ -257,7 +319,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
             aria-label={`Add Viewport Menu ${side}`}
             className={`absolute top-0 ${
               side === 'left' ? 'left-full ml-1.5' : 'right-full mr-1.5'
-            } z-50 w-56 max-h-[70vh] overflow-y-auto lighterm-scroll py-1.5 rounded-lg border shadow-2xl text-xs`}
+            } z-50 w-60 max-h-[70vh] overflow-y-auto lighterm-scroll py-1.5 rounded-lg border shadow-2xl text-xs`}
             style={{
               backgroundColor: 'var(--bg-elevated)',
               borderColor: 'var(--border-subtle)',
@@ -266,33 +328,60 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
             <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
               Add to {sideLabel} Drawer
             </div>
-            {Object.values(descriptors)
-              .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title))
-              .map((desc) => {
-              const Icon = desc.icon;
-              const existing = desc.singleton
-                ? layoutService.findViewportsByType(desc.typeId)[0]
-                : undefined;
-              const alreadyHere = Boolean(existing && visibleIds.includes(existing.id));
+            {descriptorGroups.map((group) => {
+              if (group.items.length === 1) {
+                return renderDescriptorMenuItem(group.items[0], false);
+              }
+
+              const GroupIcon = group.icon;
+              const isExpanded = Boolean(expandedPluginGroups[group.pluginId]);
+              const hereCount = group.items.filter(
+                (d) =>
+                  d.singleton &&
+                  layoutService.findViewportsByType(d.typeId).some((vp) => visibleIds.includes(vp.id)),
+              ).length;
 
               return (
-                <button
-                  key={desc.typeId}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => handleAddDescriptor(desc)}
-                  className="w-full px-3 py-1.5 flex items-center justify-between gap-2 text-left text-[var(--text-primary)] hover:bg-[var(--accent)]/20"
-                >
-                  <span className="flex items-center gap-2 min-w-0">
-                    <Icon className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
-                    <span className="truncate">
-                      {desc.typeId === 'terminal.viewport' ? 'New Terminal' : desc.title}
+                <div key={group.pluginId} data-add-viewport-group={group.pluginId}>
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    data-add-viewport-group-toggle={group.pluginId}
+                    onClick={() =>
+                      setExpandedPluginGroups((prev) => ({
+                        ...prev,
+                        [group.pluginId]: !prev[group.pluginId],
+                      }))
+                    }
+                    className="w-full px-3 py-1.5 flex items-center justify-between gap-2 text-left text-[var(--text-primary)] hover:bg-[var(--accent)]/15 transition-colors"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <GroupIcon className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                      <span className="truncate font-medium">{group.title}</span>
                     </span>
-                  </span>
-                  {alreadyHere && (
-                    <span className="text-[10px] text-[var(--text-muted)] shrink-0">Here</span>
+                    <span className="flex items-center gap-1 shrink-0 text-[10px] text-[var(--text-muted)]">
+                      {hereCount > 0 && <span>Here</span>}
+                      <span className="px-1 py-0 rounded bg-[var(--bg-surface)] text-[var(--text-muted)]">
+                        {group.items.length}
+                      </span>
+                      <ChevronDown
+                        className={`w-3 h-3 shrink-0 transition-transform ${
+                          isExpanded ? '' : '-rotate-90'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div
+                      role="group"
+                      aria-label={`${group.title} Viewports`}
+                      data-add-viewport-group-items={group.pluginId}
+                      className="ml-4 mr-1.5 my-0.5 pl-1.5 border-l border-[var(--border-subtle)] space-y-0.5"
+                    >
+                      {group.items.map((desc) => renderDescriptorMenuItem(desc, true))}
+                    </div>
                   )}
-                </button>
+                </div>
               );
             })}
 

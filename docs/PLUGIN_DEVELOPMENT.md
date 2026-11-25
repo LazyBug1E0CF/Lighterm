@@ -156,7 +156,7 @@ ctx.registerViewport({
 ### 4.3 多视口插件与子面板拖出（Tear-Off）规范
 
 一个插件可在 `activate(ctx)` 中多次调用 `ctx.registerViewport(...)` 注册**多个不同职责的 GUI 视口**，且每个视口都可以拥有完全不同的内容组件、标题、图标与默认显示位置（`defaultPosition`），并在运行期独立停靠到抽屉、边缘分栏或悬浮窗中：
-- 同一插件内的各个视口须使用全局唯一的 `typeId`（重复注册同一 `typeId` 会抛出异常）；Plugin Manager 会展示每个视口的默认位置与独立打开/停靠控制。
+- 同一插件内的各个视口须使用全局唯一的 `typeId`（重复注册同一 `typeId` 会抛出异常）；Plugin Manager 与侧边栏 `Add Viewport` (`+`) 菜单均会按插件聚合多视口列表并默认折叠，避免多层视口平铺，同时保留每个视口的独立打开/停靠控制。
 - 内置范例 `lighterm.monitor` 注册了聚合面板 `monitor.panel` 以及 `monitor.host`、`monitor.cpu`、`monitor.memory`、`monitor.network`、`monitor.disks`、`monitor.processes` 等独立子视口：它们既可以在 `System Status` 内以卡片排序展示，也可独立打开在不同区域同时显示不同内容。
 - **子面板拖出（Tear-Off）标准能力**：当插件内含可独立成窗的子卡片时，可使用 `core:layout` 提供的通用 API：
   - `layout.startTearOffDrag({ typeId, pluginId, title, params, startX, startY, currentX, currentY, floatRect, dockRatio, onCommit, onCancel })`：当指针拖出源视口边界或进入外部 Activity Rail / 分栏 / 边缘热区时，无缝切换为全局跨区域视口拖拽，支持直接拖入左侧/右侧抽屉（含 Activity Rail）、工作区五向罗盘、四向边缘分栏或松手生成悬浮窗，并在落点确认后触发 `onCommit(viewport)`。

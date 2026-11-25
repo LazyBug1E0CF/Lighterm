@@ -443,15 +443,79 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
       'monitor.processes',
     ]);
 
-    // Plugin Manager lists multi-viewport badge and every sub-viewport for lighterm.monitor
+    // Plugin Manager lists multi-viewport badge and collapses sub-viewports by default until expanded
     fireEvent.click(screen.getByLabelText('Manage Plugins'));
     const pluginModal = await screen.findByRole('dialog', { name: 'Plugin Manager' });
     const monitorCard = pluginModal.querySelector('[data-plugin-card="lighterm.monitor"]') as HTMLElement;
-    expect(within(monitorCard).getByText('7 Viewports')).toBeTruthy();
+    const monitorVpBadge = within(monitorCard).getByText('7 Viewports');
+    expect(monitorVpBadge).toBeTruthy();
     const monitorVpList = monitorCard.querySelector('[data-plugin-viewports="lighterm.monitor"]') as HTMLElement;
     expect(monitorVpList).toBeTruthy();
+    const monitorVpToggle = monitorVpList.querySelector(
+      '[data-plugin-viewports-toggle="lighterm.monitor"]',
+    ) as HTMLButtonElement;
+    expect(monitorVpToggle).toBeTruthy();
+    expect(monitorVpToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(within(monitorVpList).queryByLabelText('Right Drawer Viewport Top Processes')).toBeNull();
+
+    // Expanding via the Plugin Viewports header reveals all 7 sub-viewport rows
+    fireEvent.click(monitorVpToggle);
+    expect(monitorVpToggle.getAttribute('aria-expanded')).toBe('true');
+    expect(monitorVpList.querySelectorAll('[data-plugin-viewport-row]')).toHaveLength(7);
+    expect(within(monitorVpList).getByLabelText('Right Drawer Viewport Top Processes')).toBeTruthy();
+
+    // Clicking the header again collapses the list
+    fireEvent.click(monitorVpToggle);
+    expect(monitorVpToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(within(monitorVpList).queryByLabelText('Right Drawer Viewport Top Processes')).toBeNull();
+
+    // Clicking the N Viewports badge also expands, and reopening Plugin Manager resets to collapsed
+    fireEvent.click(monitorVpBadge);
+    expect(monitorVpToggle.getAttribute('aria-expanded')).toBe('true');
     expect(within(monitorVpList).getByLabelText('Right Drawer Viewport Top Processes')).toBeTruthy();
     fireEvent.click(within(pluginModal).getByLabelText('Close Plugin Manager'));
+
+    fireEvent.click(screen.getByLabelText('Manage Plugins'));
+    const pluginModalReopened = await screen.findByRole('dialog', { name: 'Plugin Manager' });
+    const reopenedToggle = pluginModalReopened.querySelector(
+      '[data-plugin-viewports-toggle="lighterm.monitor"]',
+    ) as HTMLButtonElement;
+    expect(reopenedToggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(within(pluginModalReopened).getByLabelText('Close Plugin Manager'));
+
+    // SideDrawer Add Viewport (+) menu groups multi-viewport plugins by plugin and collapses them by default
+    const rightDrawerContainer = screen.getByLabelText('Right Side Drawer');
+    const rightAddBtn = within(rightDrawerContainer).getByLabelText('Add Viewport to Right Drawer');
+    fireEvent.click(rightAddBtn);
+    const rightAddMenu = await screen.findByLabelText('Add Viewport Menu right');
+    expect(within(rightAddMenu).getByRole('menuitem', { name: /SFTP Browser/i })).toBeTruthy();
+    expect(within(rightAddMenu).queryByRole('menuitem', { name: /Top Processes/i })).toBeNull();
+
+    const monitorGroupToggle = rightAddMenu.querySelector(
+      '[data-add-viewport-group-toggle="lighterm.monitor"]',
+    ) as HTMLButtonElement;
+    expect(monitorGroupToggle).toBeTruthy();
+    expect(monitorGroupToggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(monitorGroupToggle);
+    expect(monitorGroupToggle.getAttribute('aria-expanded')).toBe('true');
+    const monitorGroupItems = rightAddMenu.querySelector(
+      '[data-add-viewport-group-items="lighterm.monitor"]',
+    ) as HTMLElement;
+    expect(monitorGroupItems).toBeTruthy();
+    expect(within(monitorGroupItems).getAllByRole('menuitem')).toHaveLength(7);
+    expect(within(monitorGroupItems).getByRole('menuitem', { name: /Top Processes/i })).toBeTruthy();
+    expect(within(monitorGroupItems).getByRole('menuitem', { name: /System Status/i })).toBeTruthy();
+
+    // Closing and reopening Add Viewport menu resets plugin group expansion to collapsed
+    fireEvent.click(rightAddBtn);
+    fireEvent.click(rightAddBtn);
+    const rightAddMenuReopened = await screen.findByLabelText('Add Viewport Menu right');
+    const reopenedGroupToggle = rightAddMenuReopened.querySelector(
+      '[data-add-viewport-group-toggle="lighterm.monitor"]',
+    ) as HTMLButtonElement;
+    expect(reopenedGroupToggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(rightAddBtn);
 
     // Mock bounding rects & elementsFromPoint (with ancestor data-drop-drawer) to mirror real browser hit-testing
     const monitorAside = screen.getByLabelText('System Status Panel');
