@@ -276,6 +276,7 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
       'Terminal',
       'Core Addon',
       'Shortcuts',
+      'Updates',
     ]);
 
     const pluginButtons = within(pluginsSection).getAllByRole('button');

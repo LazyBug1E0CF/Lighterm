@@ -1,5 +1,6 @@
 import { isWebRuntime } from '../core/ipc';
 import { shellService } from '../core/shellService';
+import { updateService } from '../core/updateService';
 import { resetWebTransportForTesting, useWebAuthStore, webAuth } from '../core/webTransport';
 import { windowControls } from '../core/windowControls';
 import { workspaceManager } from '../core/workspaceManager';
@@ -98,6 +99,7 @@ export function resetLightermKernelForTesting(): void {
   pluginKernel.resetForTesting();
   layoutService.resetForTesting();
   shellService.resetForTesting();
+  updateService.resetForTesting();
   resetWebTransportForTesting();
   windowControls.resetForTesting();
   monitorPanelService.resetForTesting();

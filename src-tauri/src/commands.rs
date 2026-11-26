@@ -7,9 +7,12 @@ use lighterm_core::error::{CoreError, CoreResult};
 use lighterm_core::events::CoreEventSink;
 use lighterm_core::models::{
     AppSettings, ConnectionTestResult, HostConfig, MonitorRect, PluginInfo, SavedWorkspace,
-    SessionInfo, SessionKind, SessionStatus, WindowBounds,
+    SessionInfo, SessionKind, SessionStatus, UpdatePreferences, WindowBounds,
 };
 use lighterm_core::ssh::connect_host;
+use lighterm_core::updater::{
+    open_external_https_url, DownloadedUpdate, UpdateAssetInfo, UpdateCheckResult,
+};
 use lighterm_core::LightermCore;
 use lighterm_plugin_history::{HistoryEntry, HistoryPlugin};
 use lighterm_plugin_monitor::{MonitorPlugin, SystemStats};
@@ -888,4 +891,106 @@ pub async fn sync_pull(state: State<'_, AppState>) -> CoreResult<SyncOperationRe
     let result = sync.pull().await?;
     apply_sync_side_effects(&state.core, &result);
     Ok(result)
+}
+
+// ---- App Updater Commands ----
+
+fn resolve_desktop_app_version(app: &AppHandle) -> String {
+    std::env::var("LIGHTERM_APP_VERSION")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| app.package_info().version.to_string())
+}
+
+#[tauri::command]
+pub async fn updater_get_state(state: State<'_, AppState>) -> CoreResult<UpdatePreferences> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.get_update_preferences()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn updater_save_preferences(
+    state: State<'_, AppState>,
+    preferences: UpdatePreferences,
+) -> CoreResult<UpdatePreferences> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.save_update_preferences(preferences)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn updater_check(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CoreResult<UpdateCheckResult> {
+    let current_version = resolve_desktop_app_version(&app);
+    state
+        .core
+        .updater
+        .check_for_updates(&current_version, true)
+        .await
+}
+
+#[tauri::command]
+pub async fn updater_download(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    download_id: String,
+    version: String,
+    asset: UpdateAssetInfo,
+) -> CoreResult<DownloadedUpdate> {
+    let sink = sink_for(&app);
+    state
+        .core
+        .updater
+        .download_update(download_id, version, asset, sink)
+        .await
+}
+
+#[tauri::command]
+pub fn updater_cancel_download(
+    state: State<'_, AppState>,
+    download_id: Option<String>,
+) -> CoreResult<()> {
+    state.core.updater.cancel_download(download_id.as_deref());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn updater_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_path: String,
+) -> CoreResult<()> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::PluginError, move || {
+        core.updater.install_downloaded_update(&file_path)
+    })
+    .await?;
+
+    flush_window_bounds_sync(&state.core, &state.window_bounds);
+
+    #[cfg(target_os = "windows")]
+    {
+        let exit_app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            exit_app.exit(0);
+        });
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn updater_open_url(url: String) -> CoreResult<()> {
+    run_blocking(CoreError::PluginError, move || open_external_https_url(&url)).await
 }

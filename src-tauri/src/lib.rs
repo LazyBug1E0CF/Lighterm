@@ -229,6 +229,13 @@ pub fn run() {
             commands::sync_now,
             commands::sync_push,
             commands::sync_pull,
+            commands::updater_get_state,
+            commands::updater_save_preferences,
+            commands::updater_check,
+            commands::updater_download,
+            commands::updater_cancel_download,
+            commands::updater_install,
+            commands::updater_open_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lighterm");

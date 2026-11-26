@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub const APP_NAME: &str = "Lighterm";
-pub const APP_VERSION: &str = "0.1.0";
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_EXE_NAME: &str = "lighterm.exe";
 pub const UNINSTALL_EXE_NAME: &str = "uninstall.exe";
 pub const MANIFEST_FILE_NAME: &str = "install-manifest.json";

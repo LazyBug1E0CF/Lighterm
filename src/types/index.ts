@@ -230,3 +230,71 @@ export interface ThemePreset {
   };
   xterm: ITheme;
 }
+
+export interface UpdatePreferences {
+  autoCheck: boolean;
+  skippedVersion?: string | null;
+  lastCheckedAt?: number | null;
+}
+
+export interface UpdateAssetInfo {
+  name: string;
+  downloadUrl: string;
+  size: number;
+  contentType?: string | null;
+  sha256Url?: string | null;
+}
+
+export interface ReleaseNoteEntry {
+  tagName: string;
+  version: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  publishedAt?: string | null;
+  isLatest: boolean;
+}
+
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string;
+  latestTag: string;
+  releaseUrl: string;
+  publishedAt?: string | null;
+  hasUpdate: boolean;
+  isSkipped: boolean;
+  skippedVersion?: string | null;
+  autoCheck: boolean;
+  checkedAt: number;
+  releases: ReleaseNoteEntry[];
+  asset?: UpdateAssetInfo | null;
+  canAutoDownload: boolean;
+}
+
+export type UpdateDownloadStage = 'downloading' | 'verifying' | 'ready' | 'cancelled' | 'error';
+
+export interface UpdateDownloadProgress {
+  downloadId: string;
+  version: string;
+  assetName: string;
+  stage: UpdateDownloadStage | string;
+  downloadedBytes: number;
+  totalBytes: number;
+  speedBytesPerSec: number;
+  progressPercent: number;
+  filePath?: string | null;
+  sha256Verified: boolean;
+  error?: string | null;
+}
+
+export interface DownloadedUpdate {
+  downloadId: string;
+  version: string;
+  assetName: string;
+  filePath: string;
+  sizeBytes: number;
+  sha256: string;
+  sha256Verified: boolean;
+}
+
+export type UpdateDownloadStatus = 'idle' | 'downloading' | 'verifying' | 'ready' | 'error';

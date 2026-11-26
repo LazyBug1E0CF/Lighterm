@@ -1,7 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, Globe, Keyboard, Palette, Puzzle, RotateCcw, X } from 'lucide-react';
+import {
+  ArrowUpCircle,
+  CheckCircle2,
+  ChevronDown,
+  Globe,
+  Keyboard,
+  Palette,
+  Puzzle,
+  RefreshCw,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import { isWebRuntime } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
+import { updateService, useUpdateStore } from '../../core/updateService';
 import { useWebAuthStore, webSettings } from '../../core/webTransport';
 import {
   usePluginSettingsPages,
@@ -11,6 +23,7 @@ import {
   type PluginSettingsPageDescriptor,
 } from '../../kernel';
 import { THEME_PRESETS } from '../../themes/presets';
+import packageJson from '../../../package.json';
 import type { ShortcutMap } from '../../types';
 import { DEFAULT_SHORTCUTS, formatKeyboardEvent } from '../../utils/shortcuts';
 
@@ -46,6 +59,12 @@ export const SettingsModal: React.FC = () => {
   const [webSaving, setWebSaving] = useState(false);
   const [webError, setWebError] = useState<string | null>(null);
 
+  const updateChecking = useUpdateStore((s) => s.checking);
+  const updatePrefs = useUpdateStore((s) => s.preferences);
+  const updateResult = useUpdateStore((s) => s.result);
+  const updateCheckError = useUpdateStore((s) => s.checkError);
+  const hasUnskippedUpdate = Boolean(updateResult?.hasUpdate && !updateResult.isSkipped);
+
   useEffect(() => {
     if (!open || !webMode) return;
     setWebError(null);
@@ -73,6 +92,7 @@ export const SettingsModal: React.FC = () => {
     if (
       trimmed === 'appearance' ||
       trimmed === 'shortcuts' ||
+      trimmed === 'updates' ||
       (webMode && trimmed === 'web') ||
       baseStandaloneKeys.has(trimmed)
     ) {
@@ -123,6 +143,7 @@ export const SettingsModal: React.FC = () => {
   const effectiveTab =
     resolvedActiveTab === 'appearance' ||
     resolvedActiveTab === 'shortcuts' ||
+    resolvedActiveTab === 'updates' ||
     (webMode && resolvedActiveTab === 'web') ||
     activePage ||
     activeLegacyTab
@@ -209,6 +230,7 @@ export const SettingsModal: React.FC = () => {
     Icon: PluginIconComponent,
     onClick: () => void,
     isActive: boolean,
+    showDot = false,
   ) => (
     <button
       key={key}
@@ -222,6 +244,12 @@ export const SettingsModal: React.FC = () => {
     >
       <Icon className="w-3.5 h-3.5 shrink-0" />
       <span className="truncate">{label}</span>
+      {showDot && (
+        <span
+          aria-hidden="true"
+          className="ml-auto w-2 h-2 rounded-full bg-[var(--success)] shrink-0"
+        />
+      )}
     </button>
   );
 
@@ -300,6 +328,14 @@ export const SettingsModal: React.FC = () => {
                 Keyboard,
                 () => shellService.setSettingsActiveTab('shortcuts'),
                 effectiveTab === 'shortcuts',
+              )}
+              {renderNavButton(
+                'updates',
+                'Updates',
+                ArrowUpCircle,
+                () => shellService.setSettingsActiveTab('updates'),
+                effectiveTab === 'updates',
+                hasUnskippedUpdate,
               )}
               {webMode &&
                 renderNavButton(
@@ -516,6 +552,148 @@ export const SettingsModal: React.FC = () => {
                   })}
                 </div>
                 {renderMountedPanels('shortcuts')}
+              </div>
+            )}
+
+            {effectiveTab === 'updates' && (
+              <div className="space-y-4">
+                <div className="pb-3 border-b border-[var(--border-subtle)] flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <ArrowUpCircle className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                      <h3 className="text-sm font-semibold text-[var(--text-primary)]">Updates</h3>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--bg-elevated)] text-[var(--text-muted)]">
+                        v{updateResult?.currentVersion ?? packageJson.version}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                      Check GitHub Releases for new Lighterm versions and review aggregated release
+                      notes.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={updateChecking}
+                    onClick={() => void updateService.checkForUpdates({ manual: true })}
+                    className="h-8 px-3 rounded-md font-medium bg-[var(--accent)] text-[#0f111a] hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${updateChecking ? 'animate-spin' : ''}`} />
+                    <span>{updateChecking ? 'Checking...' : 'Check for Updates'}</span>
+                  </button>
+                </div>
+
+                {updateResult ? (
+                  updateResult.hasUpdate ? (
+                    <div className="p-3 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/10 flex items-center justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-[var(--text-primary)]">
+                            Version v{updateResult.latestVersion} is available
+                          </span>
+                          {updateResult.isSkipped && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--bg-elevated)] text-[var(--text-muted)]">
+                              Skipped
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[var(--text-muted)]">
+                          {updateResult.releases.length}{' '}
+                          {updateResult.releases.length === 1 ? 'release' : 'releases'} since v
+                          {updateResult.currentVersion}.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {updateResult.isSkipped && (
+                          <button
+                            type="button"
+                            onClick={() => void updateService.clearSkippedVersion()}
+                            className="h-7 px-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] text-[11px]"
+                          >
+                            Reset Skipped Version
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            shellService.setSettingsModalOpen(false);
+                            updateService.openModal();
+                          }}
+                          className="h-7 px-2.5 rounded-md bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)] hover:border-[var(--accent)] text-[11px] font-medium"
+                        >
+                          View Update Details
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-lg border border-[var(--success)]/35 bg-[var(--success)]/10 flex items-center gap-2 text-[var(--success)]">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>
+                        You&apos;re up to date (v{updateResult.currentVersion}).
+                        {updatePrefs.lastCheckedAt
+                          ? ` Last checked ${new Date(updatePrefs.lastCheckedAt).toLocaleString()}.`
+                          : ''}
+                      </span>
+                    </div>
+                  )
+                ) : (
+                  <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 text-[var(--text-muted)]">
+                    {updatePrefs.lastCheckedAt
+                      ? `Last checked ${new Date(updatePrefs.lastCheckedAt).toLocaleString()}. Click "Check for Updates" to query GitHub Releases now.`
+                      : 'Click "Check for Updates" to check GitHub Releases for newer versions.'}
+                  </div>
+                )}
+
+                {updateCheckError && (
+                  <div
+                    role="alert"
+                    className="px-3 py-2 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 text-[var(--danger)] text-[11px]"
+                  >
+                    {updateCheckError}
+                  </div>
+                )}
+
+                <label className="flex items-start gap-2.5 p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 text-[var(--text-primary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    aria-label="Check for updates automatically"
+                    checked={updatePrefs.autoCheck}
+                    onChange={(e) => void updateService.setAutoCheck(e.target.checked)}
+                    className="mt-0.5 accent-[var(--accent)]"
+                  />
+                  <span className="space-y-1">
+                    <span className="font-semibold block">Check for updates automatically</span>
+                    <span className="text-[11px] text-[var(--text-muted)] block leading-relaxed">
+                      Silently checks GitHub Releases on startup and periodically while running,
+                      displaying an update icon next to the Lighterm title when a new release is
+                      available.
+                    </span>
+                  </span>
+                </label>
+
+                {updatePrefs.skippedVersion && (
+                  <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-[var(--text-primary)]">
+                        Skipped Version: <code className="font-mono">v{updatePrefs.skippedVersion}</code>
+                      </div>
+                      <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                        Update notifications for this version are hidden until a newer version is
+                        published.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void updateService.clearSkippedVersion()}
+                      className="h-7 px-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] text-[11px] shrink-0"
+                    >
+                      Reset Skipped Version
+                    </button>
+                  </div>
+                )}
+
+                {renderMountedPanels('updates')}
               </div>
             )}
 

@@ -6,8 +6,10 @@ import { SettingsModal } from './components/settings/SettingsModal';
 import { PluginManagerModal } from './components/shell/PluginManagerModal';
 import { ShellStatusBar } from './components/shell/ShellStatusBar';
 import { ShellTopBar } from './components/shell/ShellTopBar';
+import { UpdateModal } from './components/shell/UpdateModal';
 import { invokeTauri, isTauriRuntime, isWebRuntime } from './core/ipc';
 import { shellService, useShellStore } from './core/shellService';
+import { updateService } from './core/updateService';
 import { useWebAuthStore } from './core/webTransport';
 import { useWindowStore, windowControls } from './core/windowControls';
 import { WebAuthGate } from './components/shell/WebAuthGate';
@@ -26,6 +28,7 @@ const LightermShell: React.FC = () => {
   useEffect(() => {
     void bootstrapLightermKernel();
     void windowControls.initialize();
+    void updateService.initialize();
   }, []);
 
   // Reveal the window right after React commits DOM, then enable CSS-controlled transparency post-paint.
@@ -152,6 +155,7 @@ const LightermShell: React.FC = () => {
       <SettingsModal />
       <CommandPaletteModal />
       <PluginManagerModal />
+      <UpdateModal />
     </div>
   );
 };

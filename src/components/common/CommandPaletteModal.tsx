@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Code2, History, Layers, Search, Server, Terminal } from 'lucide-react';
 import { shellService, useShellStore } from '../../core/shellService';
+import { updateService } from '../../core/updateService';
 import { workspaceManager } from '../../core/workspaceManager';
 import { useCommands } from '../../kernel/KernelContext';
 import { layoutService } from '../../layout/layoutStore';
@@ -91,6 +92,19 @@ export const CommandPaletteModal: React.FC = () => {
         group: 'Core',
         label: 'Open Settings',
         run: () => shellService.setSettingsModalOpen(true),
+      },
+      {
+        id: 'core-check-updates',
+        group: 'Core',
+        label: 'Check for Updates',
+        run: async () => {
+          const res = await updateService.checkForUpdates({ manual: true });
+          if (res?.hasUpdate && !res.isSkipped) {
+            updateService.openModal();
+          } else {
+            shellService.openSettings('updates');
+          }
+        },
       },
     ];
 

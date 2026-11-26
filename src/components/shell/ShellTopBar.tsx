@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowUpCircle,
   Bookmark,
   BookmarkCheck,
   Command,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { isWebRuntime } from '../../core/ipc';
 import { shellService } from '../../core/shellService';
+import { updateService, useUpdateStore } from '../../core/updateService';
 import { useWebAuthStore, webAuth } from '../../core/webTransport';
 import { useWindowStore, windowControls } from '../../core/windowControls';
 import { workspaceManager } from '../../core/workspaceManager';
@@ -41,6 +43,15 @@ export const ShellTopBar: React.FC = () => {
   const topbarSlots = useSlotItems('topbar:right');
   const pluginStatuses = usePluginStatuses();
   const activePluginsCount = pluginStatuses.filter((p) => p.active).length;
+  const updateResult = useUpdateStore((s) => s.result);
+  const updateDownloadStatus = useUpdateStore((s) => s.downloadStatus);
+  const showUpdateIcon = Boolean(
+    updateResult?.hasUpdate &&
+      (!updateResult.isSkipped ||
+        updateDownloadStatus === 'downloading' ||
+        updateDownloadStatus === 'verifying' ||
+        updateDownloadStatus === 'ready'),
+  );
 
   const [quickInput, setQuickInput] = useState('');
   const [editingWsId, setEditingWsId] = useState<string | null>(null);
@@ -205,6 +216,24 @@ export const ShellTopBar: React.FC = () => {
         <span className="text-xs font-semibold tracking-wide text-[var(--text-primary)] hidden sm:inline">
           Lighterm
         </span>
+        {showUpdateIcon && updateResult && (
+          <button
+            type="button"
+            data-no-window-drag="true"
+            onClick={() => updateService.openModal()}
+            aria-label={`Update available: v${updateResult.latestVersion}`}
+            title={`Update available: v${updateResult.latestVersion} (${updateResult.releases.length} ${
+              updateResult.releases.length === 1 ? 'release' : 'releases'
+            })`}
+            className="relative w-6 h-6 rounded-md border border-[var(--success)]/45 bg-[var(--success)]/15 text-[var(--success)] hover:bg-[var(--success)]/25 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+          >
+            <ArrowUpCircle className="w-3.5 h-3.5" />
+            <span
+              aria-hidden="true"
+              className="lighterm-update-pulse absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--success)]"
+            />
+          </button>
+        )}
       </div>
 
       {/* Upper Workspace Group Tab Strip */}

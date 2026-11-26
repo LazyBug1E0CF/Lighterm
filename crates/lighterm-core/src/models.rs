@@ -337,4 +337,29 @@ impl WindowBounds {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePreferences {
+    #[serde(default = "default_true")]
+    pub auto_check: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_checked_at: Option<i64>,
+}
+
+impl Default for UpdatePreferences {
+    fn default() -> Self {
+        Self {
+            auto_check: true,
+            skipped_version: None,
+            last_checked_at: None,
+        }
+    }
+}
+
 

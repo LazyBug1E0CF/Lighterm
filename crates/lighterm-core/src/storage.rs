@@ -10,7 +10,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
-use crate::models::{AppSettings, HostConfig, SavedWorkspace, WindowBounds};
+use crate::models::{AppSettings, HostConfig, SavedWorkspace, UpdatePreferences, WindowBounds};
 
 pub struct Storage {
     data_dir: PathBuf,
@@ -358,6 +358,32 @@ impl Storage {
         let _guard = self.lock.lock();
         self.write_json_atomic("window-state.json", &bounds, false)?;
         Ok(bounds)
+    }
+
+    // ---- Updater Preferences ----
+
+    pub fn get_update_preferences(&self) -> CoreResult<UpdatePreferences> {
+        let _guard = self.lock.lock();
+        let path = self.file_path("update-state.json");
+        if !path.exists() {
+            return Ok(UpdatePreferences::default());
+        }
+        let Ok(raw) = fs::read_to_string(&path) else {
+            return Ok(UpdatePreferences::default());
+        };
+        if raw.trim().is_empty() {
+            return Ok(UpdatePreferences::default());
+        }
+        Ok(serde_json::from_str::<UpdatePreferences>(&raw).unwrap_or_default())
+    }
+
+    pub fn save_update_preferences(
+        &self,
+        prefs: UpdatePreferences,
+    ) -> CoreResult<UpdatePreferences> {
+        let _guard = self.lock.lock();
+        self.write_json_atomic("update-state.json", &prefs, false)?;
+        Ok(prefs)
     }
 }
 

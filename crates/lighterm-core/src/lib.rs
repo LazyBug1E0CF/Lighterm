@@ -6,6 +6,7 @@ pub mod pty;
 pub mod session_manager;
 pub mod ssh;
 pub mod storage;
+pub mod updater;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,12 +16,14 @@ use plugin::{CoreContext, CorePlugin, PluginRegistry};
 use session_manager::SessionManager;
 use ssh::SshConnectionPool;
 use storage::Storage;
+use updater::UpdateManager;
 
 pub struct LightermCore {
     pub storage: Arc<Storage>,
     pub ssh_pool: Arc<SshConnectionPool>,
     pub sessions: Arc<SessionManager>,
     pub plugins: Arc<PluginRegistry>,
+    pub updater: Arc<UpdateManager>,
 }
 
 impl LightermCore {
@@ -29,11 +32,13 @@ impl LightermCore {
         let ssh_pool = Arc::new(SshConnectionPool::new());
         let sessions = Arc::new(SessionManager::new(Arc::clone(&ssh_pool)));
         let plugins = Arc::new(PluginRegistry::new());
+        let updater = Arc::new(UpdateManager::new(Arc::clone(&storage)));
         Ok(Self {
             storage,
             ssh_pool,
             sessions,
             plugins,
+            updater,
         })
     }
 

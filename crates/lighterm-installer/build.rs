@@ -7,8 +7,8 @@ fn main() {
             .set("ProductName", "Lighterm")
             .set("FileDescription", "Lighterm Setup")
             .set("CompanyName", "Lighterm")
-            .set("ProductVersion", "0.1.0")
-            .set("FileVersion", "0.1.0");
+            .set("ProductVersion", env!("CARGO_PKG_VERSION"))
+            .set("FileVersion", env!("CARGO_PKG_VERSION"));
         res.compile().expect("Failed to compile Windows resources for lighterm-installer");
     }
 }

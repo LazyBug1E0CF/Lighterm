@@ -1,6 +1,6 @@
 [package]
 name = "lighterm"
-version = "0.1.0"
+version = "0.1.2"
 description = "Cross-platform lightweight GUI terminal and SSH/SFTP client"
 edition = "2021"
 

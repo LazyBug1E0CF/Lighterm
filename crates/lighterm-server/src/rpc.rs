@@ -8,7 +8,7 @@ use axum::Json;
 use bytes::Bytes;
 use lighterm_core::error::{CoreError, CoreResult};
 use lighterm_core::models::{
-    AppSettings, ConnectionTestResult, HostConfig, SavedWorkspace, SessionKind,
+    AppSettings, ConnectionTestResult, HostConfig, SavedWorkspace, SessionKind, UpdatePreferences,
 };
 use lighterm_core::ssh::connect_host;
 use lighterm_core::LightermCore;
@@ -252,6 +252,19 @@ struct SyncDiscoverGistsArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SyncOpenUrlArgs {
+    #[allow(dead_code)]
+    url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterSavePrefsArgs {
+    preferences: UpdatePreferences,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterOpenUrlArgs {
     #[allow(dead_code)]
     url: String,
 }
@@ -756,6 +769,46 @@ async fn dispatch_rpc(
             let result = sync.pull().await?;
             apply_sync_side_effects(&state.core, &result);
             Ok(serde_json::to_value(result).map_err(|e| CoreError::PluginError(e.to_string()))?)
+        }
+
+        "updater_get_state" => {
+            let core = Arc::clone(&state.core);
+            let prefs = run_blocking(CoreError::StorageError, move || {
+                core.storage.get_update_preferences()
+            })
+            .await?;
+            Ok(serde_json::to_value(prefs).map_err(|e| CoreError::StorageError(e.to_string()))?)
+        }
+        "updater_save_preferences" => {
+            let args: UpdaterSavePrefsArgs = parse_args(raw_args)?;
+            let core = Arc::clone(&state.core);
+            let saved = run_blocking(CoreError::StorageError, move || {
+                core.storage.save_update_preferences(args.preferences)
+            })
+            .await?;
+            Ok(serde_json::to_value(saved).map_err(|e| CoreError::StorageError(e.to_string()))?)
+        }
+        "updater_check" => {
+            let current_version = std::env::var("LIGHTERM_APP_VERSION")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+            let res = state
+                .core
+                .updater
+                .check_for_updates(&current_version, false)
+                .await?;
+            Ok(serde_json::to_value(res).map_err(|e| CoreError::PluginError(e.to_string()))?)
+        }
+        "updater_open_url" => {
+            let _args: UpdaterOpenUrlArgs = parse_args(raw_args)?;
+            Ok(serde_json::Value::Null)
+        }
+        "updater_download" | "updater_cancel_download" | "updater_install" => {
+            Err(CoreError::InvalidInput(
+                "Automatic installer download is only supported in the desktop app".to_string(),
+            ))
         }
 
         _ => Err(CoreError::InvalidInput(format!(
