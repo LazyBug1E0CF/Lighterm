@@ -1,0 +1,28 @@
+services:
+  lighterm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lighterm-web:latest
+    container_name: lighterm-web
+    restart: unless-stopped
+    ports:
+      - "${LIGHTERM_PORT:-8080}:8080"
+    environment:
+      LIGHTERM_BIND: "0.0.0.0:8080"
+      LIGHTERM_DATA_DIR: "/data"
+      LIGHTERM_STATIC_DIR: "/app/dist"
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      LIGHTERM_AUTH_PASSWORD: "${LIGHTERM_AUTH_PASSWORD:-change-me-now}"
+      LIGHTERM_AUTH_USER: "${LIGHTERM_AUTH_USER:-}"
+      LIGHTERM_COOKIE_SECURE: "${LIGHTERM_COOKIE_SECURE:-auto}"
+      LIGHTERM_GITHUB_CLIENT_ID: "${LIGHTERM_GITHUB_CLIENT_ID:-}"
+      RUST_LOG: "${RUST_LOG:-info}"
+    volumes:
+      - lighterm-data:/data
+      # Optional: share existing host SSH keys read-only
+      # - ~/.ssh:/home/lighterm/.ssh:ro
+
+volumes:
+  lighterm-data:

@@ -12,6 +12,7 @@ use parking_lot::{Mutex, RwLock};
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -462,6 +463,206 @@ impl SftpPlugin {
         );
 
         Ok(())
+    }
+
+    pub async fn upload_from_stream(
+        &self,
+        host: &HostConfig,
+        remote_path: &str,
+        file_name: String,
+        total_bytes: u64,
+        mut rx: mpsc::Receiver<CoreResult<Vec<u8>>>,
+        sink: &dyn CoreEventSink,
+    ) -> CoreResult<()> {
+        let sftp = self.get_session(host).await?;
+        let transfer_id = Uuid::new_v4().to_string();
+
+        let mut remote_file = sftp.create(remote_path).await.map_err(|e| {
+            CoreError::PluginError(format!("Failed to create remote file '{remote_path}': {e}"))
+        })?;
+
+        let mut transferred = 0u64;
+
+        while let Some(chunk_res) = rx.recv().await {
+            let chunk = match chunk_res {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    Self::emit_progress(
+                        sink,
+                        SftpTransferProgress {
+                            transfer_id,
+                            host_id: host.id.clone(),
+                            file_name,
+                            direction: "upload".to_string(),
+                            bytes_transferred: transferred,
+                            total_bytes,
+                            done: true,
+                            error: Some(err.to_string()),
+                        },
+                    );
+                    let _ = remote_file.close().await;
+                    return Err(err);
+                }
+            };
+
+            if chunk.is_empty() {
+                continue;
+            }
+
+            if let Err(err) = remote_file.write_all(&chunk).await {
+                Self::emit_progress(
+                    sink,
+                    SftpTransferProgress {
+                        transfer_id,
+                        host_id: host.id.clone(),
+                        file_name,
+                        direction: "upload".to_string(),
+                        bytes_transferred: transferred,
+                        total_bytes,
+                        done: true,
+                        error: Some(err.to_string()),
+                    },
+                );
+                return Err(CoreError::PluginError(format!("Remote write failed: {err}")));
+            }
+
+            transferred += chunk.len() as u64;
+            Self::emit_progress(
+                sink,
+                SftpTransferProgress {
+                    transfer_id: transfer_id.clone(),
+                    host_id: host.id.clone(),
+                    file_name: file_name.clone(),
+                    direction: "upload".to_string(),
+                    bytes_transferred: transferred,
+                    total_bytes,
+                    done: false,
+                    error: None,
+                },
+            );
+        }
+
+        remote_file
+            .flush()
+            .await
+            .map_err(|e| CoreError::PluginError(format!("Remote flush failed: {e}")))?;
+        remote_file
+            .close()
+            .await
+            .map_err(|e| CoreError::PluginError(format!("Remote close failed: {e}")))?;
+
+        Self::emit_progress(
+            sink,
+            SftpTransferProgress {
+                transfer_id,
+                host_id: host.id.clone(),
+                file_name,
+                direction: "upload".to_string(),
+                bytes_transferred: transferred,
+                total_bytes,
+                done: true,
+                error: None,
+            },
+        );
+
+        Ok(())
+    }
+
+    pub async fn open_download_stream(
+        &self,
+        host: &HostConfig,
+        remote_path: &str,
+        sink: Arc<dyn CoreEventSink>,
+    ) -> CoreResult<(u64, mpsc::Receiver<CoreResult<Vec<u8>>>)> {
+        let sftp = self.get_session(host).await?;
+        let total_bytes = sftp
+            .metadata(remote_path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let mut remote_file = sftp.open(remote_path).await.map_err(|e| {
+            CoreError::PluginError(format!("Failed to open remote file '{remote_path}': {e}"))
+        })?;
+
+        let file_name = remote_path
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("download")
+            .to_string();
+        let transfer_id = Uuid::new_v4().to_string();
+        let host_id = host.id.clone();
+
+        let (tx, rx) = mpsc::channel::<CoreResult<Vec<u8>>>(8);
+
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 65536];
+            let mut transferred = 0u64;
+
+            loop {
+                match remote_file.read(&mut buf).await {
+                    Ok(0) => {
+                        let _ = remote_file.close().await;
+                        Self::emit_progress(
+                            sink.as_ref(),
+                            SftpTransferProgress {
+                                transfer_id,
+                                host_id,
+                                file_name,
+                                direction: "download".to_string(),
+                                bytes_transferred: transferred,
+                                total_bytes,
+                                done: true,
+                                error: None,
+                            },
+                        );
+                        break;
+                    }
+                    Ok(n) => {
+                        transferred += n as u64;
+                        if tx.send(Ok(buf[..n].to_vec())).await.is_err() {
+                            let _ = remote_file.close().await;
+                            break;
+                        }
+                        Self::emit_progress(
+                            sink.as_ref(),
+                            SftpTransferProgress {
+                                transfer_id: transfer_id.clone(),
+                                host_id: host_id.clone(),
+                                file_name: file_name.clone(),
+                                direction: "download".to_string(),
+                                bytes_transferred: transferred,
+                                total_bytes,
+                                done: false,
+                                error: None,
+                            },
+                        );
+                    }
+                    Err(err) => {
+                        let msg = format!("Remote read failed: {err}");
+                        Self::emit_progress(
+                            sink.as_ref(),
+                            SftpTransferProgress {
+                                transfer_id,
+                                host_id,
+                                file_name,
+                                direction: "download".to_string(),
+                                bytes_transferred: transferred,
+                                total_bytes,
+                                done: true,
+                                error: Some(msg.clone()),
+                            },
+                        );
+                        let _ = tx.send(Err(CoreError::PluginError(msg))).await;
+                        let _ = remote_file.close().await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok((total_bytes, rx))
     }
 }
 

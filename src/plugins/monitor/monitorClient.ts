@@ -1,4 +1,4 @@
-import { invokeTauri, isTauriRuntime } from '../../core/ipc';
+import { hasBackendRuntime, invokeBackend } from '../../core/ipc';
 import type { HostConfig, SessionKind, SystemStats } from '../../types';
 
 export async function fetchSystemStats(params: {
@@ -6,8 +6,8 @@ export async function fetchSystemStats(params: {
   hostId?: string;
   hostConfig?: HostConfig;
 }): Promise<SystemStats> {
-  if (isTauriRuntime()) {
-    return invokeTauri<SystemStats>('monitor_get_stats', params);
+  if (hasBackendRuntime()) {
+    return invokeBackend<SystemStats>('monitor_get_stats', params);
   }
 
   const now = Date.now();

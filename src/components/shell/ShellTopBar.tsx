@@ -5,13 +5,16 @@ import {
   Command,
   Layers,
   LayoutGrid,
+  LogOut,
   Pencil,
   Plus,
   Puzzle,
   Settings,
   X,
 } from 'lucide-react';
+import { isWebRuntime } from '../../core/ipc';
 import { shellService } from '../../core/shellService';
+import { useWebAuthStore, webAuth } from '../../core/webTransport';
 import { useWindowStore, windowControls } from '../../core/windowControls';
 import { workspaceManager } from '../../core/workspaceManager';
 import { usePluginStatuses, useSlotItems } from '../../kernel/KernelContext';
@@ -32,6 +35,9 @@ export const ShellTopBar: React.FC = () => {
   const activeWorkspaceId = useLayoutStore((s) => s.activeWorkspaceId);
   const viewports = useLayoutStore((s) => s.viewports);
   const platform = useWindowStore((s) => s.platform);
+  const webMode = isWebRuntime();
+  const webAuthRequired = useWebAuthStore((s) => s.authRequired);
+  const webAuthenticated = useWebAuthStore((s) => s.authenticated);
   const topbarSlots = useSlotItems('topbar:right');
   const pluginStatuses = usePluginStatuses();
   const activePluginsCount = pluginStatuses.filter((p) => p.active).length;
@@ -104,7 +110,9 @@ export const ShellTopBar: React.FC = () => {
 
   const handleNewWorkspace = () => {
     layoutService.createWorkspace();
-    void shellService.createLocalSession();
+    if (!webMode || useWebAuthStore.getState().localShellEnabled) {
+      void shellService.createLocalSession();
+    }
   };
 
   const commitRename = () => {
@@ -161,6 +169,7 @@ export const ShellTopBar: React.FC = () => {
     : null;
 
   const handleHeaderMouseDown = (e: React.MouseEvent<HTMLElement>) => {
+    if (webMode) return;
     if (e.button !== 0) return;
     const target = e.target;
     if (target instanceof Element && target.closest(NON_DRAG_SELECTOR)) return;
@@ -173,17 +182,17 @@ export const ShellTopBar: React.FC = () => {
 
   return (
     <header
-      data-tauri-drag-region
+      data-tauri-drag-region={webMode ? undefined : true}
       onMouseDown={handleHeaderMouseDown}
       className={`h-10 shrink-0 flex items-center gap-2 border-b select-none ${
-        platform === 'windows' ? 'pl-3 pr-0' : 'px-3'
+        !webMode && platform === 'windows' ? 'pl-3 pr-0' : 'px-3'
       }`}
       style={{
         backgroundColor: 'var(--bg-surface)',
         borderColor: 'var(--border-subtle)',
       }}
     >
-      {platform === 'macos' && <WindowControls />}
+      {!webMode && platform === 'macos' && <WindowControls />}
 
       {/* Brand Badge */}
       <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-subtle)] shrink-0">
@@ -461,9 +470,22 @@ export const ShellTopBar: React.FC = () => {
         >
           <Settings className="w-4 h-4" />
         </button>
+
+        {webMode && webAuthRequired && webAuthenticated && (
+          <button
+            type="button"
+            onClick={() => void webAuth.logout()}
+            title="Sign Out"
+            aria-label="Sign Out"
+            className="h-7 px-2 rounded-md flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--danger)] hover:bg-[var(--bg-elevated)] transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Sign Out</span>
+          </button>
+        )}
       </div>
 
-      {platform !== 'macos' && <WindowControls />}
+      {!webMode && platform !== 'macos' && <WindowControls />}
     </header>
   );
 };

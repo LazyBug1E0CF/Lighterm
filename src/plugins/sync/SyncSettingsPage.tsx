@@ -24,7 +24,7 @@ import {
   UserCheck,
   XCircle,
 } from 'lucide-react';
-import { isTauriRuntime } from '../../core/ipc';
+import { hasBackendRuntime } from '../../core/ipc';
 import type { PluginSettingsPageProps } from '../../kernel';
 import {
   createDefaultSyncConfig,
@@ -486,7 +486,7 @@ export const SyncSettingsPage: React.FC<PluginSettingsPageProps> = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                {!isTauriRuntime() && (
+                {!hasBackendRuntime() && (
                   <button
                     type="button"
                     onClick={() => {

@@ -1,4 +1,4 @@
-import { invokeTauri, isTauriRuntime, readLs, writeLs } from '../core/ipc';
+import { hasBackendRuntime, invokeBackend, readLs, writeLs } from '../core/ipc';
 import type { BackendPluginInfo } from '../types';
 import {
   VIEWPORT_POSITIONS,
@@ -189,9 +189,9 @@ export class PluginKernel {
     this.pluginConfigs.set(pluginId, { rawLs, data: nextData });
     this.rebuildSnapshot();
 
-    if (isTauriRuntime()) {
+    if (hasBackendRuntime()) {
       try {
-        await invokeTauri('plugin_config_save', { pluginId, config: nextData });
+        await invokeBackend('plugin_config_save', { pluginId, config: nextData });
       } catch {
         // Ignore if backend command is unavailable
       }
@@ -209,9 +209,9 @@ export class PluginKernel {
     this.pluginConfigs.set(pluginId, { rawLs: null, data: {} });
     this.rebuildSnapshot();
 
-    if (isTauriRuntime()) {
+    if (hasBackendRuntime()) {
       try {
-        await invokeTauri('plugin_config_reset', { pluginId });
+        await invokeBackend('plugin_config_reset', { pluginId });
       } catch {
         // Ignore if backend command is unavailable
       }
@@ -221,14 +221,14 @@ export class PluginKernel {
   }
 
   async reloadPluginConfigsFromBackend(): Promise<void> {
-    if (!isTauriRuntime()) {
+    if (!hasBackendRuntime()) {
       this.pluginConfigs.clear();
       this.rebuildSnapshot();
       return;
     }
 
     try {
-      const backendConfigs = await invokeTauri<Record<string, Record<string, unknown>>>(
+      const backendConfigs = await invokeBackend<Record<string, Record<string, unknown>>>(
         'plugin_configs_get_all',
       );
       if (!backendConfigs || typeof backendConfigs !== 'object') {
@@ -396,9 +396,9 @@ export class PluginKernel {
       this.drainActivationNotifications();
     }
 
-    if (isTauriRuntime()) {
+    if (hasBackendRuntime()) {
       try {
-        const backendConfigs = await invokeTauri<Record<string, Record<string, unknown>>>(
+        const backendConfigs = await invokeBackend<Record<string, Record<string, unknown>>>(
           'plugin_configs_get_all',
         );
         if (backendConfigs && typeof backendConfigs === 'object') {
@@ -423,9 +423,9 @@ export class PluginKernel {
       }
     }
 
-    if (isTauriRuntime() && !initialEnabled) {
+    if (hasBackendRuntime() && !initialEnabled) {
       try {
-        const backendPlugins = await invokeTauri<BackendPluginInfo[]>('plugins_list');
+        const backendPlugins = await invokeBackend<BackendPluginInfo[]>('plugins_list');
         let backendChanged = false;
         for (const bp of backendPlugins) {
           if (bp.id in stored) continue;
@@ -505,9 +505,9 @@ export class PluginKernel {
   }
 
   private async syncBackendPlugin(id: string, enabled: boolean): Promise<void> {
-    if (!isTauriRuntime()) return;
+    if (!hasBackendRuntime()) return;
     try {
-      await invokeTauri('plugins_set_enabled', { id, enabled });
+      await invokeBackend('plugins_set_enabled', { id, enabled });
     } catch {
       // Frontend-only plugins (e.g., lighterm.terminal, lighterm.hosts) are not registered on Rust side
     }

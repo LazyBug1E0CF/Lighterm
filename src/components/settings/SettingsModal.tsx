@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { ChevronDown, Keyboard, Palette, Puzzle, RotateCcw, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, Globe, Keyboard, Palette, Puzzle, RotateCcw, X } from 'lucide-react';
+import { isWebRuntime } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
+import { useWebAuthStore, webSettings } from '../../core/webTransport';
 import {
   usePluginSettingsPages,
   usePluginStatuses,
@@ -39,6 +41,16 @@ export const SettingsModal: React.FC = () => {
 
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutMap | null>(null);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+  const webMode = isWebRuntime();
+  const localShellEnabled = useWebAuthStore((s) => s.localShellEnabled);
+  const [webSaving, setWebSaving] = useState(false);
+  const [webError, setWebError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !webMode) return;
+    setWebError(null);
+    void webSettings.load().catch(() => {});
+  }, [open, webMode]);
 
   if (!open) return null;
 
@@ -58,7 +70,12 @@ export const SettingsModal: React.FC = () => {
   const resolveMountTarget = (rawMountTo?: string): string | null => {
     const trimmed = rawMountTo?.trim();
     if (!trimmed) return null;
-    if (trimmed === 'appearance' || trimmed === 'shortcuts' || baseStandaloneKeys.has(trimmed)) {
+    if (
+      trimmed === 'appearance' ||
+      trimmed === 'shortcuts' ||
+      (webMode && trimmed === 'web') ||
+      baseStandaloneKeys.has(trimmed)
+    ) {
       return trimmed;
     }
     if (!trimmed.includes(':') && standaloneByPluginId.has(trimmed)) {
@@ -106,6 +123,7 @@ export const SettingsModal: React.FC = () => {
   const effectiveTab =
     resolvedActiveTab === 'appearance' ||
     resolvedActiveTab === 'shortcuts' ||
+    (webMode && resolvedActiveTab === 'web') ||
     activePage ||
     activeLegacyTab
       ? resolvedActiveTab
@@ -283,6 +301,14 @@ export const SettingsModal: React.FC = () => {
                 () => shellService.setSettingsActiveTab('shortcuts'),
                 effectiveTab === 'shortcuts',
               )}
+              {webMode &&
+                renderNavButton(
+                  'web',
+                  'Web App',
+                  Globe,
+                  () => shellService.setSettingsActiveTab('web'),
+                  effectiveTab === 'web',
+                )}
             </div>
 
             <div
@@ -490,6 +516,66 @@ export const SettingsModal: React.FC = () => {
                   })}
                 </div>
                 {renderMountedPanels('shortcuts')}
+              </div>
+            )}
+
+            {webMode && effectiveTab === 'web' && (
+              <div className="space-y-4">
+                <div className="pb-3 border-b border-[var(--border-subtle)]">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Globe className="w-4 h-4 text-[var(--accent)] shrink-0" />
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Web App</h3>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--bg-elevated)] text-[var(--text-muted)]">
+                      Web Only
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                    Settings exclusive to the self-hosted Lighterm Web App.
+                  </p>
+                </div>
+
+                <label className="flex items-start gap-2.5 p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 text-[var(--text-primary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    aria-label="Allow Local Shell"
+                    checked={localShellEnabled}
+                    disabled={webSaving}
+                    onChange={(e) => {
+                      const nextVal = e.target.checked;
+                      setWebSaving(true);
+                      setWebError(null);
+                      void webSettings
+                        .save({ allowLocalShell: nextVal })
+                        .catch((err) => {
+                          setWebError(err instanceof Error ? err.message : String(err));
+                        })
+                        .finally(() => {
+                          setWebSaving(false);
+                        });
+                    }}
+                    className="mt-0.5"
+                  />
+                  <span className="space-y-1">
+                    <span className="font-semibold block">Allow Local Shell</span>
+                    <span className="text-[11px] text-[var(--text-muted)] block leading-relaxed">
+                      Disabled by default so the Web App operates as an SSH/SFTP gateway without
+                      exposing the server or container shell. Enabling permits spawning local PTY
+                      terminals; disabling blocks new local terminals and closes active local shell
+                      sessions.
+                    </span>
+                  </span>
+                </label>
+
+                {webError && (
+                  <div
+                    role="alert"
+                    className="px-3 py-2 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 text-[var(--danger)] text-[11px]"
+                  >
+                    {webError}
+                  </div>
+                )}
+
+                {renderMountedPanels('web')}
               </div>
             )}
           </div>

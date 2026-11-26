@@ -14,7 +14,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { pickOpenFile, pickSaveFile } from '../../core/ipc';
+import { isWebRuntime, pickBrowserFile, pickOpenFile, pickSaveFile } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
 import type { ViewportComponentProps } from '../../kernel/types';
 import type { SftpEntry } from '../../types';
@@ -73,6 +73,12 @@ export const SftpViewport: React.FC<ViewportComponentProps> = () => {
 
   const handleUpload = async () => {
     if (!sftpHostId) return;
+    if (isWebRuntime()) {
+      const file = await pickBrowserFile();
+      if (!file) return;
+      await sftpClient.uploadFile(file);
+      return;
+    }
     const picked = await pickOpenFile('Upload File via SFTP');
     const localPath = picked ?? window.prompt('Local file path to upload:');
     if (!localPath) return;
@@ -81,6 +87,10 @@ export const SftpViewport: React.FC<ViewportComponentProps> = () => {
   };
 
   const handleDownload = async (entry: SftpEntry) => {
+    if (isWebRuntime()) {
+      await sftpClient.download(entry, entry.name);
+      return;
+    }
     const picked = await pickSaveFile('Save Remote File', entry.name);
     const localPath = picked ?? window.prompt('Save to local path:', `./${entry.name}`);
     if (!localPath) return;

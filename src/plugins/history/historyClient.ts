@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { invokeTauri, isTauriRuntime, makeUuid, readLs, writeLs } from '../../core/ipc';
+import { hasBackendRuntime, invokeBackend, makeUuid, readLs, writeLs } from '../../core/ipc';
 import type { HistoryEntry, SessionKind } from '../../types';
 
 const LS_HISTORY = 'lighterm:history';
@@ -28,8 +28,8 @@ export const historyClient = {
 
   async load(query?: string, limit = 200): Promise<HistoryEntry[]> {
     let entries: HistoryEntry[];
-    if (isTauriRuntime()) {
-      entries = await invokeTauri<HistoryEntry[]>('history_list', {
+    if (hasBackendRuntime()) {
+      entries = await invokeBackend<HistoryEntry[]>('history_list', {
         query: query ?? null,
         limit,
       });
@@ -58,8 +58,8 @@ export const historyClient = {
     if (!trimmed) return null;
 
     let saved: HistoryEntry | null;
-    if (isTauriRuntime()) {
-      saved = await invokeTauri<HistoryEntry | null>('history_record', {
+    if (hasBackendRuntime()) {
+      saved = await invokeBackend<HistoryEntry | null>('history_record', {
         command: trimmed,
         sessionKind,
         hostLabel,
@@ -91,8 +91,8 @@ export const historyClient = {
   },
 
   async remove(id: string): Promise<void> {
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('history_delete', { id });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('history_delete', { id });
     } else {
       const list = readLs<HistoryEntry[]>(LS_HISTORY, () => []).filter((e) => e.id !== id);
       writeLs(LS_HISTORY, list);
@@ -101,8 +101,8 @@ export const historyClient = {
   },
 
   async clear(): Promise<void> {
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('history_clear');
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('history_clear');
     } else {
       writeLs(LS_HISTORY, []);
     }

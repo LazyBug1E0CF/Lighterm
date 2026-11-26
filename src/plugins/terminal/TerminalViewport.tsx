@@ -157,11 +157,14 @@ export const TerminalViewport: React.FC<ViewportComponentProps> = ({
       }
 
       if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === 'V') {
-        void navigator.clipboard?.readText().then((txt) => {
-          if (txt) {
-            void shellService.writeSession(sessionId, utf8ToBase64(txt));
-          }
-        });
+        void navigator.clipboard
+          ?.readText()
+          .then((txt) => {
+            if (txt) {
+              void shellService.writeSession(sessionId, utf8ToBase64(txt));
+            }
+          })
+          .catch(() => {});
         return false;
       }
 

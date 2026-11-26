@@ -8,5 +8,6 @@ members = [
   "crates/plugins/history",
   "crates/plugins/sync",
   "crates/lighterm-installer",
+  "crates/lighterm-server",
   "src-tauri",
 ]

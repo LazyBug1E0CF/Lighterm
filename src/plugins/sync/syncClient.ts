@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { invokeTauri, isTauriRuntime, makeUuid, readLs, writeLs } from '../../core/ipc';
+import { hasBackendRuntime, invokeBackend, isTauriRuntime, makeUuid, readLs, writeLs } from '../../core/ipc';
 import { createDefaultSettings, shellService } from '../../core/shellService';
 import { pluginKernel } from '../../kernel/PluginKernel';
 import type { AppSettings, HostConfig, SavedWorkspace, Snippet } from '../../types';
@@ -1123,8 +1123,8 @@ async function applyLiveReloadIfNeeded(result: SyncOperationResult): Promise<voi
 export const syncClient = {
   async loadConfig(): Promise<SyncConfigView> {
     try {
-      const view = isTauriRuntime()
-        ? await invokeTauri<SyncConfigView>('sync_get_config')
+      const view = hasBackendRuntime()
+        ? await invokeBackend<SyncConfigView>('sync_get_config')
         : getMockView();
       useSyncPluginStore.setState({ view, loaded: true, error: null });
       return view;
@@ -1138,8 +1138,8 @@ export const syncClient = {
   async saveConfig(input: SyncConfigUpdateInput): Promise<SyncConfigView> {
     try {
       let view: SyncConfigView;
-      if (isTauriRuntime()) {
-        view = await invokeTauri<SyncConfigView>('sync_save_config', { input });
+      if (hasBackendRuntime()) {
+        view = await invokeBackend<SyncConfigView>('sync_save_config', { input });
       } else {
         const creds = readMockCreds();
         if (input.encryptionPassphrase !== undefined && input.encryptionPassphrase !== null) {
@@ -1175,10 +1175,10 @@ export const syncClient = {
     });
     try {
       let flow: OAuthDeviceFlowStart;
-      if (isTauriRuntime()) {
-        flow = await invokeTauri<OAuthDeviceFlowStart>('sync_oauth_start', {
+      if (hasBackendRuntime()) {
+        flow = await invokeBackend<OAuthDeviceFlowStart>('sync_oauth_start', {
           configOverride: configOverride ?? null,
-          openBrowser,
+          openBrowser: isTauriRuntime() ? openBrowser : false,
         });
       } else {
         const cfg = configOverride ?? readMockConfig();
@@ -1223,8 +1223,8 @@ export const syncClient = {
   async pollOAuth(flowId: string): Promise<OAuthPollResult> {
     try {
       let result: OAuthPollResult;
-      if (isTauriRuntime()) {
-        result = await invokeTauri<OAuthPollResult>('sync_oauth_poll', { flowId });
+      if (hasBackendRuntime()) {
+        result = await invokeBackend<OAuthPollResult>('sync_oauth_poll', { flowId });
       } else {
         const entry = mockPendingFlows.get(flowId);
         if (!entry) {
@@ -1335,8 +1335,8 @@ export const syncClient = {
   async cancelOAuth(flowId?: string): Promise<void> {
     const targetId = flowId ?? useSyncPluginStore.getState().oauthFlow?.flowId;
     if (targetId) {
-      if (isTauriRuntime()) {
-        await invokeTauri<void>('sync_oauth_cancel', { flowId: targetId }).catch(() => {});
+      if (hasBackendRuntime()) {
+        await invokeBackend<void>('sync_oauth_cancel', { flowId: targetId }).catch(() => {});
       } else {
         mockPendingFlows.delete(targetId);
       }
@@ -1351,8 +1351,8 @@ export const syncClient = {
 
   async logout(): Promise<SyncConfigView> {
     let view: SyncConfigView;
-    if (isTauriRuntime()) {
-      view = await invokeTauri<SyncConfigView>('sync_oauth_logout');
+    if (hasBackendRuntime()) {
+      view = await invokeBackend<SyncConfigView>('sync_oauth_logout');
     } else {
       mockPendingFlows.clear();
       const creds = readMockCreds();
@@ -1383,15 +1383,15 @@ export const syncClient = {
 
   async openVerificationUrl(url: string): Promise<void> {
     if (isTauriRuntime()) {
-      await invokeTauri<void>('sync_open_verification_url', { url });
+      await invokeBackend<void>('sync_open_verification_url', { url });
     } else if (typeof window !== 'undefined' && typeof window.open === 'function') {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   },
 
   async resetLocalState(): Promise<SyncConfigView> {
-    const view = isTauriRuntime()
-      ? await invokeTauri<SyncConfigView>('sync_reset_state')
+    const view = hasBackendRuntime()
+      ? await invokeBackend<SyncConfigView>('sync_reset_state')
       : (() => {
           const creds = readMockCreds();
           writeLs(LS_SYNC_STATE, {
@@ -1413,8 +1413,8 @@ export const syncClient = {
     useSyncPluginStore.setState({ testing: true, error: null });
     try {
       let result: SyncTestResult;
-      if (isTauriRuntime()) {
-        result = await invokeTauri<SyncTestResult>('sync_test_connection', {
+      if (hasBackendRuntime()) {
+        result = await invokeBackend<SyncTestResult>('sync_test_connection', {
           configOverride: configOverride ?? null,
         });
       } else {
@@ -1478,8 +1478,8 @@ export const syncClient = {
     useSyncPluginStore.setState({ discovering: true, error: null });
     try {
       let gists: DiscoveredGist[];
-      if (isTauriRuntime()) {
-        gists = await invokeTauri<DiscoveredGist[]>('sync_discover_gists', {
+      if (hasBackendRuntime()) {
+        gists = await invokeBackend<DiscoveredGist[]>('sync_discover_gists', {
           apiBaseUrl: apiBaseUrl ?? null,
           fileName: fileName ?? null,
         });
@@ -1508,13 +1508,13 @@ export const syncClient = {
     useSyncPluginStore.setState({ syncing: true, error: null });
     try {
       const cmd = action === 'sync' ? 'sync_now' : action === 'push' ? 'sync_push' : 'sync_pull';
-      const result = isTauriRuntime()
-        ? await invokeTauri<SyncOperationResult>(cmd)
+      const result = hasBackendRuntime()
+        ? await invokeBackend<SyncOperationResult>(cmd)
         : runMockSyncOperation(action);
 
       await applyLiveReloadIfNeeded(result);
-      const view = isTauriRuntime()
-        ? await invokeTauri<SyncConfigView>('sync_get_config').catch(() => ({
+      const view = hasBackendRuntime()
+        ? await invokeBackend<SyncConfigView>('sync_get_config').catch(() => ({
             ...useSyncPluginStore.getState().view,
             status: result.status,
           }))

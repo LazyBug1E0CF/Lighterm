@@ -1,6 +1,8 @@
 import React from 'react';
 import { Layers, Puzzle, Server, Terminal } from 'lucide-react';
+import { isWebRuntime } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
+import { useWebAuthStore } from '../../core/webTransport';
 import { usePluginStatuses, useSlotItems } from '../../kernel/KernelContext';
 import { useLayoutStore } from '../../layout/layoutStore';
 import { getThemePreset } from '../../themes/presets';
@@ -27,6 +29,8 @@ export const ShellStatusBar: React.FC = () => {
     : 'disconnected';
   const theme = getThemePreset(settings.themeId);
   const activePluginsCount = pluginStatuses.filter((p) => p.active).length;
+  const webMode = isWebRuntime();
+  const wsStatus = useWebAuthStore((s) => s.wsStatus);
 
   return (
     <footer
@@ -62,6 +66,31 @@ export const ShellStatusBar: React.FC = () => {
         {rightSlots.map((slot) => (
           <React.Fragment key={`${slot.pluginId}:${slot.id}`}>{slot.render()}</React.Fragment>
         ))}
+
+        {webMode && (
+          <span
+            aria-label="Web Connection Status"
+            className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-[var(--bg-app)]/70 border border-[var(--border-subtle)]"
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                wsStatus === 'connected'
+                  ? 'bg-[var(--success)]'
+                  : wsStatus === 'connecting'
+                    ? 'bg-[var(--warning)] animate-pulse'
+                    : 'bg-[var(--danger)]'
+              }`}
+            />
+            <span>
+              Web ·{' '}
+              {wsStatus === 'connected'
+                ? 'Connected'
+                : wsStatus === 'connecting'
+                  ? 'Reconnecting…'
+                  : 'Disconnected'}
+            </span>
+          </span>
+        )}
 
         <button
           type="button"

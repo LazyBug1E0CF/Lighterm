@@ -1,4 +1,5 @@
 import React from 'react';
+import { isWebRuntime } from '../../core/ipc';
 import { useWindowStore, windowControls } from '../../core/windowControls';
 
 const WinMinimizeGlyph: React.FC = () => (
@@ -50,6 +51,8 @@ export const WindowControls: React.FC = () => {
   const platform = useWindowStore((s) => s.platform);
   const maximized = useWindowStore((s) => s.maximized);
   const focused = useWindowStore((s) => s.focused);
+
+  if (isWebRuntime()) return null;
 
   const maximizeLabel = maximized ? 'Restore Window' : 'Maximize Window';
   const maximizeTitle = maximized ? 'Restore' : 'Maximize';

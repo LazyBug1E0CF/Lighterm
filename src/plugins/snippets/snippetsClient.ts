@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { invokeTauri, isTauriRuntime, makeUuid, readLs, writeLs } from '../../core/ipc';
+import { hasBackendRuntime, invokeBackend, makeUuid, readLs, writeLs } from '../../core/ipc';
 import type { Snippet } from '../../types';
 
 const LS_SNIPPETS = 'lighterm:snippets';
@@ -75,8 +75,8 @@ export const snippetsClient = {
   },
 
   async load(): Promise<Snippet[]> {
-    const snippets = isTauriRuntime()
-      ? await invokeTauri<Snippet[]>('snippets_list')
+    const snippets = hasBackendRuntime()
+      ? await invokeBackend<Snippet[]>('snippets_list')
       : readLs<Snippet[]>(LS_SNIPPETS, createStarterSnippets);
     useSnippetsPluginStore.setState({ snippets });
     changeListeners.forEach((cb) => cb(snippets));
@@ -85,8 +85,8 @@ export const snippetsClient = {
 
   async save(snippet: Snippet): Promise<Snippet> {
     let saved: Snippet;
-    if (isTauriRuntime()) {
-      saved = await invokeTauri<Snippet>('snippets_save', { snippet });
+    if (hasBackendRuntime()) {
+      saved = await invokeBackend<Snippet>('snippets_save', { snippet });
     } else {
       const list = readLs<Snippet[]>(LS_SNIPPETS, createStarterSnippets);
       saved = {
@@ -105,8 +105,8 @@ export const snippetsClient = {
   },
 
   async remove(id: string): Promise<void> {
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('snippets_delete', { id });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('snippets_delete', { id });
     } else {
       const list = readLs<Snippet[]>(LS_SNIPPETS, createStarterSnippets).filter((s) => s.id !== id);
       writeLs(LS_SNIPPETS, list);

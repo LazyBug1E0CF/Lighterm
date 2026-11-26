@@ -10,7 +10,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { pickOpenFile } from '../../core/ipc';
+import { isWebRuntime, pickBrowserFile, pickOpenFile } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
 import type { ConnectionTestResult, HostConfig } from '../../types';
 
@@ -148,6 +148,14 @@ export const HostFormModal: React.FC = () => {
   });
 
   const handleBrowseKey = async () => {
+    if (isWebRuntime()) {
+      const file = await pickBrowserFile('.pem,.key,.ppk,text/plain');
+      if (file) {
+        const pem = await file.text();
+        setPrivateKeyPem(pem);
+      }
+      return;
+    }
     const selected = await pickOpenFile('Select SSH Private Key');
     if (selected) setKeyPath(selected);
   };

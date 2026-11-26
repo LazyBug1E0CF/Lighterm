@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import { invokeTauri, isTauriRuntime, listenTauri, makeUuid } from '../../core/ipc';
+import {
+  hasBackendRuntime,
+  invokeBackend,
+  isWebRuntime,
+  listenBackend,
+  makeUuid,
+} from '../../core/ipc';
+import { webSftpDownload, webSftpUpload } from '../../core/webTransport';
 import { pluginKernel } from '../../kernel/PluginKernel';
 import type { SftpEntry, SftpTransferProgress } from '../../types';
 
@@ -124,24 +131,24 @@ function pushProgress(progress: SftpTransferProgress): void {
 }
 
 export async function subscribeSftpProgressEvents(): Promise<() => void> {
-  if (!isTauriRuntime()) return () => {};
-  return listenTauri<SftpTransferProgress>('sftp:progress', (payload) => {
+  if (!hasBackendRuntime()) return () => {};
+  return listenBackend<SftpTransferProgress>('sftp:progress', (payload) => {
     pushProgress(payload);
   });
 }
 
 export const sftpClient = {
   async canonicalize(hostId: string, path: string): Promise<string> {
-    if (isTauriRuntime()) {
-      return invokeTauri<string>('sftp_canonicalize', { hostId, path });
+    if (hasBackendRuntime()) {
+      return invokeBackend<string>('sftp_canonicalize', { hostId, path });
     }
     if (!path || path === '.') return '/home/deploy';
     return path.startsWith('/') ? path : `/home/deploy/${path}`;
   },
 
   async listDir(hostId: string, path: string): Promise<SftpEntry[]> {
-    if (isTauriRuntime()) {
-      return invokeTauri<SftpEntry[]>('sftp_list_dir', { hostId, path });
+    if (hasBackendRuntime()) {
+      return invokeBackend<SftpEntry[]>('sftp_list_dir', { hostId, path });
     }
     const tree = getMockSftpTree(hostId);
     const items = tree.get(path) ?? [];
@@ -203,8 +210,8 @@ export const sftpClient = {
     if (!hostId || !name.trim()) return;
     const clean = name.trim().replace(/^\/+|\/+$/g, '');
     const target = path === '/' ? `/${clean}` : `${path.replace(/\/+$/, '')}/${clean}`;
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('sftp_mkdir', { hostId, path: target });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('sftp_mkdir', { hostId, path: target });
     } else {
       const tree = getMockSftpTree(hostId);
       const lastSlash = target.lastIndexOf('/');
@@ -229,8 +236,8 @@ export const sftpClient = {
   async remove(entry: SftpEntry): Promise<void> {
     const { hostId } = useSftpPluginStore.getState();
     if (!hostId) return;
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('sftp_remove', { hostId, path: entry.path, isDir: entry.isDir });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('sftp_remove', { hostId, path: entry.path, isDir: entry.isDir });
     } else {
       const tree = getMockSftpTree(hostId);
       const lastSlash = entry.path.lastIndexOf('/');
@@ -247,8 +254,8 @@ export const sftpClient = {
     if (!hostId || !newName.trim()) return;
     const clean = newName.trim().replace(/\//g, '');
     const nextPath = path === '/' ? `/${clean}` : `${path.replace(/\/+$/, '')}/${clean}`;
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('sftp_rename', { hostId, oldPath: entry.path, newPath: nextPath });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('sftp_rename', { hostId, oldPath: entry.path, newPath: nextPath });
     } else {
       const tree = getMockSftpTree(hostId);
       const oldSlash = entry.path.lastIndexOf('/');
@@ -264,8 +271,8 @@ export const sftpClient = {
     const { hostId, path } = useSftpPluginStore.getState();
     if (!hostId) return;
     const remotePath = path === '/' ? `/${fileName}` : `${path.replace(/\/+$/, '')}/${fileName}`;
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('sftp_upload', { hostId, localPath, remotePath });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('sftp_upload', { hostId, localPath, remotePath });
     } else {
       pushProgress({
         transferId: makeUuid(),
@@ -294,11 +301,27 @@ export const sftpClient = {
     await this.refresh();
   },
 
+  async uploadFile(file: File): Promise<void> {
+    const { hostId, path } = useSftpPluginStore.getState();
+    if (!hostId) return;
+    const remotePath = path === '/' ? `/${file.name}` : `${path.replace(/\/+$/, '')}/${file.name}`;
+    if (isWebRuntime()) {
+      await webSftpUpload(hostId, remotePath, file);
+      await this.refresh();
+      return;
+    }
+    await this.upload(file.name, file.name);
+  },
+
   async download(entry: SftpEntry, localPath: string): Promise<void> {
     const { hostId } = useSftpPluginStore.getState();
     if (!hostId) return;
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('sftp_download', {
+    if (isWebRuntime()) {
+      await webSftpDownload(hostId, entry.path, entry.name, entry.size);
+      return;
+    }
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('sftp_download', {
         hostId,
         remotePath: entry.path,
         localPath,

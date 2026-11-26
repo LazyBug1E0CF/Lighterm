@@ -10,7 +10,7 @@ import type {
 } from '../types';
 import { base64ToBytes, utf8ToBase64 } from '../utils/base64';
 import { DEFAULT_SHORTCUTS } from '../utils/shortcuts';
-import { invokeTauri, isTauriRuntime, listenTauri, makeUuid, readLs, writeLs } from './ipc';
+import { hasBackendRuntime, invokeBackend, listenBackend, makeUuid, readLs, writeLs } from './ipc';
 
 const LS_HOSTS = 'lighterm:hosts';
 const LS_WORKSPACES = 'lighterm:workspaces';
@@ -229,21 +229,21 @@ function dispatchExit(sessionId: string): void {
 }
 
 async function ensureTauriListeners(): Promise<void> {
-  if (!isTauriRuntime()) return;
+  if (!hasBackendRuntime()) return;
   if (tauriListenersPromise) return tauriListenersPromise;
 
   tauriListenersPromise = (async () => {
     await Promise.all([
-      listenTauri<{ sessionId: string; dataBase64: string }>('terminal:output', (payload) => {
+      listenBackend<{ sessionId: string; dataBase64: string }>('terminal:output', (payload) => {
         dispatchOutput(payload.sessionId, payload.dataBase64);
       }),
-      listenTauri<{ sessionId: string; status: SessionStatus; message?: string }>(
+      listenBackend<{ sessionId: string; status: SessionStatus; message?: string }>(
         'terminal:status',
         (payload) => {
           dispatchStatus(payload.sessionId, payload.status, payload.message);
         },
       ),
-      listenTauri<{ sessionId: string; exitCode?: number }>('terminal:exit', (payload) => {
+      listenBackend<{ sessionId: string; exitCode?: number }>('terminal:exit', (payload) => {
         dispatchExit(payload.sessionId);
       }),
     ]);
@@ -335,9 +335,9 @@ export class ShellService {
 
     try {
       let info: SessionInfo;
-      if (isTauriRuntime()) {
+      if (hasBackendRuntime()) {
         await ensureTauriListeners();
-        info = await invokeTauri<SessionInfo>('terminal_create_local', {
+        info = await invokeBackend<SessionInfo>('terminal_create_local', {
           cols,
           rows,
           cwd: params?.cwd,
@@ -375,7 +375,7 @@ export class ShellService {
       sessionCreatedListeners.forEach((cb) => cb(record, params?.meta));
       activeSessionListeners.forEach((cb) => cb(info.id));
 
-      if (!isTauriRuntime()) {
+      if (!hasBackendRuntime()) {
         const prompt = '\x1b[36mlighterm\x1b[0m:\x1b[34m~\x1b[0m$ ';
         mockSessions.set(info.id, { info, lineBuffer: '', cwd: '/home/lighterm', prompt });
         dispatchStatus(info.id, 'connected');
@@ -411,9 +411,9 @@ export class ShellService {
         resolvedHost = useShellStore.getState().hosts.find((h) => h.id === params.hostId);
       }
 
-      if (isTauriRuntime()) {
+      if (hasBackendRuntime()) {
         await ensureTauriListeners();
-        info = await invokeTauri<SessionInfo>('terminal_create_ssh', {
+        info = await invokeBackend<SessionInfo>('terminal_create_ssh', {
           hostId: params.hostId,
           hostConfig: params.hostConfig,
           cols,
@@ -452,7 +452,7 @@ export class ShellService {
       sessionCreatedListeners.forEach((cb) => cb(record, params.meta));
       activeSessionListeners.forEach((cb) => cb(info.id));
 
-      if (!isTauriRuntime()) {
+      if (!hasBackendRuntime()) {
         const user = resolvedHost?.username ?? 'deploy';
         const hostLabel = resolvedHost?.host ?? 'remote';
         const prompt = `\x1b[32m${user}@${hostLabel}\x1b[0m:\x1b[34m~\x1b[0m$ `;
@@ -518,8 +518,8 @@ export class ShellService {
       sessionInputListeners.forEach((cb) => cb(sessionId, text));
     }
 
-    if (isTauriRuntime()) {
-      return invokeTauri<void>('terminal_write', { sessionId, dataBase64 });
+    if (hasBackendRuntime()) {
+      return invokeBackend<void>('terminal_write', { sessionId, dataBase64 });
     }
 
     const session = mockSessions.get(sessionId);
@@ -557,8 +557,8 @@ export class ShellService {
       sessionDimensions: { ...state.sessionDimensions, [sessionId]: { cols, rows } },
     }));
 
-    if (isTauriRuntime()) {
-      return invokeTauri<void>('terminal_resize', { sessionId, cols, rows });
+    if (hasBackendRuntime()) {
+      return invokeBackend<void>('terminal_resize', { sessionId, cols, rows });
     }
     const s = mockSessions.get(sessionId);
     if (s) {
@@ -572,8 +572,8 @@ export class ShellService {
     historyChunks.delete(sessionId);
     everMountedSessions.delete(sessionId);
 
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('terminal_close', { sessionId }).catch(() => {});
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('terminal_close', { sessionId }).catch(() => {});
     } else {
       mockSessions.delete(sessionId);
     }
@@ -759,8 +759,8 @@ export class ShellService {
   // ---- Core Host Management ----
 
   async listHosts(): Promise<HostConfig[]> {
-    const hosts = isTauriRuntime()
-      ? await invokeTauri<HostConfig[]>('hosts_list')
+    const hosts = hasBackendRuntime()
+      ? await invokeBackend<HostConfig[]>('hosts_list')
       : readLs<HostConfig[]>(LS_HOSTS, () => []);
     useShellStore.setState({ hosts });
     return hosts;
@@ -768,8 +768,8 @@ export class ShellService {
 
   async saveHost(host: HostConfig): Promise<HostConfig> {
     let saved: HostConfig;
-    if (isTauriRuntime()) {
-      saved = await invokeTauri<HostConfig>('hosts_save', { host });
+    if (hasBackendRuntime()) {
+      saved = await invokeBackend<HostConfig>('hosts_save', { host });
     } else {
       const hosts = readLs<HostConfig[]>(LS_HOSTS, () => []);
       saved = {
@@ -789,8 +789,8 @@ export class ShellService {
   }
 
   async deleteHost(id: string): Promise<void> {
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('hosts_delete', { id });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('hosts_delete', { id });
     } else {
       const hosts = readLs<HostConfig[]>(LS_HOSTS, () => []).filter((h) => h.id !== id);
       writeLs(LS_HOSTS, hosts);
@@ -800,8 +800,8 @@ export class ShellService {
   }
 
   async testHostConnection(host: HostConfig): Promise<ConnectionTestResult> {
-    if (isTauriRuntime()) {
-      return invokeTauri<ConnectionTestResult>('hosts_test_connection', { host });
+    if (hasBackendRuntime()) {
+      return invokeBackend<ConnectionTestResult>('hosts_test_connection', { host });
     }
     return {
       success: Boolean(host.host.trim() && host.username.trim()),
@@ -815,8 +815,8 @@ export class ShellService {
   // ---- Core Saved Workspaces ----
 
   async listSavedWorkspaces(): Promise<SavedWorkspace[]> {
-    const savedWorkspaces = isTauriRuntime()
-      ? await invokeTauri<SavedWorkspace[]>('workspaces_list')
+    const savedWorkspaces = hasBackendRuntime()
+      ? await invokeBackend<SavedWorkspace[]>('workspaces_list')
       : readLs<SavedWorkspace[]>(LS_WORKSPACES, () => []);
     useShellStore.setState({ savedWorkspaces });
     return savedWorkspaces;
@@ -833,8 +833,8 @@ export class ShellService {
     };
 
     let saved: SavedWorkspace;
-    if (isTauriRuntime()) {
-      saved = await invokeTauri<SavedWorkspace>('workspaces_save', { workspace: payload });
+    if (hasBackendRuntime()) {
+      saved = await invokeBackend<SavedWorkspace>('workspaces_save', { workspace: payload });
     } else {
       const workspaces = readLs<SavedWorkspace[]>(LS_WORKSPACES, () => []);
       const now = Date.now();
@@ -863,8 +863,8 @@ export class ShellService {
   }
 
   async deleteSavedWorkspace(id: string): Promise<void> {
-    if (isTauriRuntime()) {
-      await invokeTauri<void>('workspaces_delete', { id });
+    if (hasBackendRuntime()) {
+      await invokeBackend<void>('workspaces_delete', { id });
     } else {
       const workspaces = readLs<SavedWorkspace[]>(LS_WORKSPACES, () => []).filter(
         (w) => w.id !== id,
@@ -878,8 +878,8 @@ export class ShellService {
   // ---- Core Settings ----
 
   async loadSettings(): Promise<AppSettings> {
-    if (isTauriRuntime()) {
-      return invokeTauri<AppSettings>('settings_get');
+    if (hasBackendRuntime()) {
+      return invokeBackend<AppSettings>('settings_get');
     }
     return readLs<AppSettings>(LS_SETTINGS, createDefaultSettings);
   }
@@ -894,8 +894,8 @@ export class ShellService {
         ...(partial.shortcuts ?? {}),
       },
     };
-    const saved = isTauriRuntime()
-      ? await invokeTauri<AppSettings>('settings_save', { settings: merged })
+    const saved = hasBackendRuntime()
+      ? await invokeBackend<AppSettings>('settings_save', { settings: merged })
       : (() => {
           writeLs(LS_SETTINGS, merged);
           return merged;

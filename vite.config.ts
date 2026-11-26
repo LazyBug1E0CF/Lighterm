@@ -3,12 +3,24 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  base: './',
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   server: {
     host: '127.0.0.1',
     port: 1420,
     strictPort: true,
+    proxy: {
+      '/api': {
+        target: process.env.LIGHTERM_SERVER_URL || 'http://127.0.0.1:8080',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: process.env.LIGHTERM_SERVER_URL || 'http://127.0.0.1:8080',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
     watch: {
       ignored: ['**/src-tauri/**', '**/crates/**'],
     },

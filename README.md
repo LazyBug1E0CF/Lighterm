@@ -56,3 +56,72 @@ pnpm run build:installer
 ```bash
 sudo apt update && sudo apt install -y libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev libayatana-appindicator3-dev
 ```
+
+## Web App & Docker Deployment
+
+Lighterm also ships a standalone Rust web backend (`crates/lighterm-server`) serving the React workbench over HTTP + WebSocket, with full support for local PTY shells, remote SSH/SFTP, real-time monitoring, snippets, history, and GitHub Config Sync.
+
+### Quick Start with Docker
+
+```bash
+# Build image
+docker build -t lighterm-web:latest .
+
+# Run container (persistent data in named volume, protected by password)
+docker run -d \
+  --name lighterm-web \
+  -p 8080:8080 \
+  -e LIGHTERM_AUTH_PASSWORD="your-strong-password" \
+  -v lighterm-data:/data \
+  lighterm-web:latest
+```
+
+Or using Docker Compose:
+
+```bash
+LIGHTERM_AUTH_PASSWORD="your-strong-password" docker compose up -d
+```
+
+Open `http://localhost:8080` in your browser.
+
+### Server Environment Variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LIGHTERM_BIND` | `0.0.0.0:8080` | Bind address (`host:port`). Falls back to `0.0.0.0:${PORT:-8080}`. |
+| `LIGHTERM_DATA_DIR` | OS config dir (`/data` in Docker) | Persistent storage directory for `hosts.json`, `settings.json`, `workspaces.json`, `plugins.json`, etc. |
+| `LIGHTERM_STATIC_DIR` | `dist` (or `/app/dist`) | Directory containing the built Vite frontend bundle. |
+| `LIGHTERM_AUTH_PASSWORD` | _(unset)_ | Enables Web UI login gate & session cookies (`HttpOnly`, `SameSite=Lax`). **Strongly recommended** when exposed on a network. |
+| `LIGHTERM_AUTH_USER` | _(unset)_ | Optional username required alongside `LIGHTERM_AUTH_PASSWORD`. |
+| `LIGHTERM_SESSION_TTL_SECS` | `86400` | Web auth session lifetime in seconds. |
+| `LIGHTERM_COOKIE_SECURE` | `auto` | `auto` (sets `Secure` when `X-Forwarded-Proto: https`), `always`, or `never`. |
+| `PUID` / `PGID` | `1000` / `1000` | Target UID/GID used inside the container. On startup, the entrypoint automatically aligns `/data` ownership for NAS bind mounts before dropping privileges via `gosu`. |
+| `LIGHTERM_GITHUB_CLIENT_ID` | _(built-in)_ | Optional GitHub OAuth App Client ID override for `lighterm.sync`. |
+| `RUST_LOG` | `info` | Server logging filter (`tracing_subscriber`). |
+
+> **Web App Local Shell Setting**: In Web App mode, local server/container PTY shells are **disabled by default** so deployments act as an SSH/SFTP gateway out of the box. You can toggle **Allow Local Shell** at any time under **Settings → Web App** (persisted in `/data/web-settings.json`).
+
+### Reverse Proxy (Nginx WebSocket Example)
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 0;
+}
+```
+
+### Local Web Development
+
+```bash
+# Terminal 1: Start the Rust web backend
+cargo run -p lighterm-server
+
+# Terminal 2: Start Vite in web mode (proxies /api and /ws to 127.0.0.1:8080)
+pnpm run dev:web
+```

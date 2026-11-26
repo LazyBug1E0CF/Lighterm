@@ -1,4 +1,6 @@
+import { isWebRuntime } from '../core/ipc';
 import { shellService } from '../core/shellService';
+import { resetWebTransportForTesting, useWebAuthStore, webAuth } from '../core/webTransport';
 import { windowControls } from '../core/windowControls';
 import { workspaceManager } from '../core/workspaceManager';
 import { pluginKernel } from '../kernel/PluginKernel';
@@ -52,8 +54,16 @@ export async function bootstrapLightermKernel(): Promise<void> {
       layoutService.mountStartupPluginViewports('drawers');
     }
 
-    if (shellService.listSessions().length === 0) {
+    webAuth.syncFromWindowConfig();
+    const localShellDisabled =
+      isWebRuntime() && !useWebAuthStore.getState().localShellEnabled;
+
+    if (shellService.listSessions().length === 0 && !localShellDisabled) {
       await shellService.createLocalSession();
+    }
+
+    if (localShellDisabled) {
+      layoutService.setDrawerOpen('left', true);
     }
 
     if (isFreshBoot) {
@@ -88,6 +98,7 @@ export function resetLightermKernelForTesting(): void {
   pluginKernel.resetForTesting();
   layoutService.resetForTesting();
   shellService.resetForTesting();
+  resetWebTransportForTesting();
   windowControls.resetForTesting();
   monitorPanelService.resetForTesting();
   syncClient.resetForTesting();

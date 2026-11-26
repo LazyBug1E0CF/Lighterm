@@ -1,6 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Minimize2, Plus, Terminal } from 'lucide-react';
+import { Minimize2, Plus, Server, Settings, Terminal } from 'lucide-react';
+import { isWebRuntime } from '../core/ipc';
 import { shellService, useShellStore } from '../core/shellService';
+import { useWebAuthStore } from '../core/webTransport';
 import { useViewportDescriptors } from '../kernel/KernelContext';
 import { TERMINAL_VIEWPORT_TYPE } from '../plugins/terminal/terminalService';
 import { DockGroupView } from './DockGroupView';
@@ -179,6 +181,8 @@ export const WorkspaceCanvas: React.FC = () => {
   const dragState = useLayoutStore((s) => s.dragState);
   const layoutTransitionSeq = useLayoutStore((s) => s.layoutTransitionSeq);
   const descriptors = useViewportDescriptors();
+  const webLocalShellEnabled = useWebAuthStore((s) => s.localShellEnabled);
+  const localShellAllowed = !isWebRuntime() || webLocalShellEnabled;
 
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
@@ -501,19 +505,49 @@ export const WorkspaceCanvas: React.FC = () => {
               })}
             </>
           ) : visibleFloating.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)]">
-              <p>
-                No central viewports open. Create a shell or drag any drawer/floating viewport here.
-              </p>
-              <button
-                type="button"
-                aria-label="Create First Local Shell"
-                onClick={() => void shellService.createLocalSession()}
-                className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                New Local Shell
-              </button>
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)] px-4 text-center">
+              {localShellAllowed ? (
+                <>
+                  <p>
+                    No central viewports open. Create a shell or drag any drawer/floating viewport
+                    here.
+                  </p>
+                  <button
+                    type="button"
+                    aria-label="Create First Local Shell"
+                    onClick={() => void shellService.createLocalSession()}
+                    className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New Local Shell
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="max-w-md leading-relaxed">
+                    Local shell is disabled in Web App mode by default. Connect to an SSH host from
+                    the left drawer, or enable local shell in Settings → Web App.
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap justify-center">
+                    <button
+                      type="button"
+                      onClick={() => shellService.openHostModal(null)}
+                      className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
+                    >
+                      <Server className="w-3.5 h-3.5" />
+                      New SSH Host
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => shellService.openSettings('web')}
+                      className="h-8 px-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1.5"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      Web App Settings
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="flex-1" />

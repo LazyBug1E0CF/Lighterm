@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "vite --mode web",
     "build": "tsc && vite build",
     "build:installer": "node scripts/build-installer.mjs",
     "preview": "vite preview",

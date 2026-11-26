@@ -10,5 +10,5 @@ parking_lot = "0.12"
 russh-sftp = "3.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["fs", "io-util"] }
+tokio = { version = "1", features = ["fs", "io-util", "rt", "sync"] }
 uuid = { version = "1", features = ["v4"] }
