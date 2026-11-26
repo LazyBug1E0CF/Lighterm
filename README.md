@@ -125,3 +125,7 @@ cargo run -p lighterm-server
 # Terminal 2: Start Vite in web mode (proxies /api and /ws to 127.0.0.1:8080)
 pnpm run dev:web
 ```
+
+## License
+
+Lighterm is licensed under the [MIT License](LICENSE).

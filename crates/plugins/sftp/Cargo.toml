@@ -2,6 +2,7 @@
 name = "lighterm-plugin-sftp"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "SFTP browser and file transfer plugin for Lighterm"
 
 [dependencies]

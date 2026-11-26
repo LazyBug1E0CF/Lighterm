@@ -2,6 +2,7 @@
 name = "lighterm-plugin-monitor"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Local and remote SSH system monitor plugin for Lighterm"
 
 [dependencies]

@@ -11,3 +11,6 @@ members = [
   "crates/lighterm-server",
   "src-tauri",
 ]
+
+[workspace.package]
+license = "MIT"

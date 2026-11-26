@@ -2,6 +2,7 @@
 name = "lighterm-plugin-sync"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Cross-device GitHub configuration synchronization plugin for Lighterm"
 
 [dependencies]

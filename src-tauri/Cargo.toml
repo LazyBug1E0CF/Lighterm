@@ -3,6 +3,7 @@ name = "lighterm"
 version = "0.1.2"
 description = "Cross-platform lightweight GUI terminal and SSH/SFTP client"
 edition = "2021"
+license.workspace = true
 
 [lib]
 name = "lighterm_lib"

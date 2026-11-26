@@ -2,6 +2,7 @@
 name = "lighterm-core"
 version = "0.1.2"
 edition = "2021"
+license.workspace = true
 description = "Minimal shell connection, session, storage, and plugin kernel for Lighterm"
 
 [dependencies]
