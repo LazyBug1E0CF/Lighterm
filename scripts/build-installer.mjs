@@ -11,12 +11,12 @@ const releaseDir = resolve(rootDir, 'target', 'release');
 const setupName = `Lighterm-Setup-${version}-x64.exe`;
 const setupPath = resolve(releaseDir, setupName);
 
-function run(cmd, args) {
+function run(cmd, args, options = {}) {
   console.log(`\n> ${cmd} ${args.join(' ')}`);
   const res = spawnSync(cmd, args, {
     cwd: rootDir,
     stdio: 'inherit',
-    shell: process.platform === 'win32' && cmd.endsWith('.cmd'),
+    shell: Boolean(options.shell),
   });
   if (res.error) {
     throw res.error;
@@ -26,7 +26,7 @@ function run(cmd, args) {
   }
 }
 
-run('pnpm.cmd', ['tauri', 'build', '--no-bundle']);
+run('pnpm', ['tauri', 'build', '--no-bundle'], { shell: process.platform === 'win32' });
 run('cargo', ['build', '--release', '-p', 'lighterm-installer']);
 run(resolve(releaseDir, 'pack-setup.exe'), [
   '--stub',

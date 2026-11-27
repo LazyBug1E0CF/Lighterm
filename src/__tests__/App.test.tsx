@@ -56,7 +56,9 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     // Open a second local terminal session via "+ Shell" Host Palette, then split horizontally
     fireEvent.click(screen.getByLabelText('Open Host Palette'));
     const hostPalette = await screen.findByRole('dialog', { name: 'Host Palette' });
-    fireEvent.click(within(hostPalette).getByText('Windows PowerShell'));
+    const secondaryShell =
+      useShellStore.getState().localShells[1] ?? useShellStore.getState().localShells[0];
+    fireEvent.click(within(hostPalette).getByText(secondaryShell.name));
     await waitFor(() => {
       expect(useShellStore.getState().sessionOrder.length).toBeGreaterThanOrEqual(2);
     });

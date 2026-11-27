@@ -182,7 +182,9 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
 
     fireEvent.click(screen.getByLabelText('Open Host Palette'));
     const palette1 = await screen.findByRole('dialog', { name: 'Host Palette' });
-    fireEvent.click(within(palette1).getByText('Windows PowerShell'));
+    const pickedShell =
+      useShellStore.getState().localShells[1] ?? useShellStore.getState().localShells[0];
+    fireEvent.click(within(palette1).getByText(pickedShell.name));
     await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
       expect(screen.queryByLabelText('Workspace Start Actions')).toBeNull();
@@ -195,7 +197,7 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
     });
     expect(pluginKernel.isPluginActive(terminalPlugin.id)).toBe(true);
 
-    fireEvent.click(screen.getByLabelText('Close Windows PowerShell'));
+    fireEvent.click(screen.getByLabelText(`Close ${pickedShell.name}`));
     expect(await screen.findByLabelText('Workspace Start Actions')).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText('Create First Local Shell'));
@@ -209,7 +211,7 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
 
     fireEvent.click(screen.getByLabelText('Open Host Palette'));
     const palette2 = await screen.findByRole('dialog', { name: 'Host Palette' });
-    fireEvent.click(within(palette2).getByText('Windows PowerShell'));
+    fireEvent.click(within(palette2).getByText(pickedShell.name));
     await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
       expect(useShellStore.getState().sessionOrder).toHaveLength(1);

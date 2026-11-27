@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from '../App';
 import { shellService, useShellStore } from '../core/shellService';
@@ -6,9 +6,21 @@ import { layoutService, useLayoutStore } from '../layout/layoutStore';
 import { resetLightermKernelForTesting } from '../plugins';
 
 describe('No-Default-Shell Startup, Two-Column Start Screen & Host Palette', () => {
+  let platformSpy: ReturnType<typeof vi.spyOn> | undefined;
+  let userAgentSpy: ReturnType<typeof vi.spyOn> | undefined;
+
   beforeEach(() => {
+    platformSpy = vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
+    userAgentSpy = vi
+      .spyOn(window.navigator, 'userAgent', 'get')
+      .mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
     window.localStorage.clear();
     resetLightermKernelForTesting();
+  });
+
+  afterEach(() => {
+    platformSpy?.mockRestore();
+    userAgentSpy?.mockRestore();
   });
 
   it('does not open a local shell on startup or when creating a new workspace', async () => {

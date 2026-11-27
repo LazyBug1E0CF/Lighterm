@@ -34,6 +34,10 @@
     "active": true,
     "targets": "all",
     "license": "MIT",
+    "category": "DeveloperTool",
+    "homepage": "https://github.com/LazyBug1E0CF/Lighterm",
+    "shortDescription": "Cross-platform lightweight GUI terminal and SSH/SFTP client",
+    "longDescription": "Lighterm is a lightweight, cross-platform GUI terminal emulator and SSH/SFTP workbench built with Tauri v2, Rust, React, and xterm.js.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
