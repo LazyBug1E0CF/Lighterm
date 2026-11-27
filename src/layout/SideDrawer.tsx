@@ -12,7 +12,9 @@ import {
   Settings,
   X,
 } from 'lucide-react';
+import { isWebRuntime } from '../core/ipc';
 import { shellService } from '../core/shellService';
+import { useWebAuthStore } from '../core/webTransport';
 import { usePluginStatuses, useViewportDescriptors } from '../kernel/KernelContext';
 import type { PluginIconComponent, ViewportDescriptor } from '../kernel/types';
 import { animateViewportReveal } from './layoutAnimator';
@@ -31,6 +33,8 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
   const dragState = useLayoutStore((s) => s.dragState);
   const descriptors = useViewportDescriptors();
   const pluginStatuses = usePluginStatuses();
+  const webLocalShellEnabled = useWebAuthStore((s) => s.localShellEnabled);
+  const localShellAllowed = !isWebRuntime() || webLocalShellEnabled;
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [expandedPluginGroups, setExpandedPluginGroups] = useState<Record<string, boolean>>({});
@@ -196,6 +200,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
   const descriptorGroups = useMemo(() => {
     const grouped = new Map<string, ViewportDescriptor[]>();
     for (const desc of Object.values(descriptors)) {
+      if (desc.typeId === 'terminal.viewport' && !localShellAllowed) continue;
       const list = grouped.get(desc.pluginId);
       if (list) {
         list.push(desc);
@@ -219,7 +224,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({ side }) => {
         };
       })
       .sort((a, b) => a.minOrder - b.minOrder || a.title.localeCompare(b.title));
-  }, [descriptors, pluginStatuses]);
+  }, [descriptors, pluginStatuses, localShellAllowed]);
 
   const renderDescriptorMenuItem = (desc: ViewportDescriptor, nested = false) => {
     const Icon = desc.icon;

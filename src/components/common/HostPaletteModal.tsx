@@ -196,7 +196,11 @@ export const HostPaletteModal: React.FC = () => {
                 shellService.setHostPaletteOpen(false);
               }
             }}
-            placeholder="Search recent hosts, saved hosts, local terminals, or user@host[:port]..."
+            placeholder={
+              localShellAllowed
+                ? 'Search recent hosts, saved hosts, local terminals, or user@host[:port]...'
+                : 'Search recent hosts, saved hosts, or user@host[:port]...'
+            }
             className="flex-1 bg-transparent text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none"
           />
         </div>
@@ -204,7 +208,7 @@ export const HostPaletteModal: React.FC = () => {
         <div className="max-h-96 overflow-y-auto lighterm-scroll p-1.5 space-y-2 text-xs">
           {items.length === 0 ? (
             <div className="py-6 text-center text-[var(--text-muted)]">
-              No matching hosts or local terminals
+              {localShellAllowed ? 'No matching hosts or local terminals' : 'No matching hosts'}
             </div>
           ) : (
             sections.map((section) => (

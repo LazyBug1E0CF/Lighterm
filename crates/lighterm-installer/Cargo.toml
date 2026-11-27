@@ -1,6 +1,6 @@
 [package]
 name = "lighterm-installer"
-version = "0.1.2"
+version = "0.1.3"
 description = "Custom Obsidian Spotlight Windows installer and uninstaller for Lighterm"
 edition = "2021"
 license.workspace = true

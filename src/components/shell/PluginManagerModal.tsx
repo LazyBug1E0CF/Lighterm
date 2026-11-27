@@ -10,7 +10,9 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
+import { isWebRuntime } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
+import { useWebAuthStore } from '../../core/webTransport';
 import {
   useKernel,
   usePluginSettingsPages,
@@ -25,6 +27,8 @@ export const PluginManagerModal: React.FC = () => {
   const open = useShellStore((s) => s.pluginManagerOpen);
   const sessionCount = useShellStore((s) => s.sessionOrder.length);
   const hostCount = useShellStore((s) => s.hosts.length);
+  const webLocalShellEnabled = useWebAuthStore((s) => s.localShellEnabled);
+  const localShellAllowed = !isWebRuntime() || webLocalShellEnabled;
 
   const kernel = useKernel();
   const plugins = usePluginStatuses();
@@ -215,6 +219,11 @@ export const PluginManagerModal: React.FC = () => {
                 .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.title.localeCompare(b.title));
               const primaryDesc = pluginDescriptors[0];
               const hasViewport = Boolean(primaryDesc);
+              const canSpawnPrimary = Boolean(
+                plugin.active &&
+                  primaryDesc &&
+                  !(primaryDesc.typeId === 'terminal.viewport' && !localShellAllowed),
+              );
               const settingsPage = settingsPages.find((p) => p.pluginId === plugin.id);
               const isViewportsExpanded = Boolean(expandedViewports[plugin.id]);
               const viewportsListId = `plugin-viewports-list-${plugin.id}`;
@@ -231,7 +240,7 @@ export const PluginManagerModal: React.FC = () => {
                     </span>
 
                     <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
-                      {plugin.active && primaryDesc && (
+                      {canSpawnPrimary && primaryDesc && (
                         <>
                           <button
                             type="button"

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import { isWebRuntime } from '../../core/ipc';
 import type { ShellService } from '../../core/shellService';
+import { useWebAuthStore } from '../../core/webTransport';
 import type { LayoutService } from '../../layout/layoutStore';
 import { useLayoutStore } from '../../layout/layoutStore';
 import type { HostConfig, SplitDirection } from '../../types';
@@ -29,6 +31,8 @@ export class TerminalPluginService {
     if (!targetVp) {
       if (explicitHost) {
         await this.shell.createSshSession({ hostId: explicitHost.id, hostConfig: explicitHost });
+      } else if (isWebRuntime() && !useWebAuthStore.getState().localShellEnabled) {
+        this.shell.setHostPaletteOpen(true);
       } else {
         await this.shell.createLocalSession();
       }
@@ -61,6 +65,8 @@ export class TerminalPluginService {
         rows: 24,
         meta,
       });
+    } else if (isWebRuntime() && !useWebAuthStore.getState().localShellEnabled) {
+      this.shell.setHostPaletteOpen(true);
     } else {
       await this.shell.createLocalSession({
         cols: 80,

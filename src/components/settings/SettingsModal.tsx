@@ -512,7 +512,9 @@ export const SettingsModal: React.FC = () => {
                 </div>
 
                 <div className="divide-y divide-[var(--border-subtle)]/60 border border-[var(--border-subtle)] rounded-lg overflow-hidden">
-                  {SHORTCUT_LABELS.map(({ key, label }) => {
+                  {SHORTCUT_LABELS.filter(
+                    ({ key }) => !(webMode && !localShellEnabled && key === 'newLocalTab'),
+                  ).map(({ key, label }) => {
                     const isRecording = recordingKey === key;
                     return (
                       <div

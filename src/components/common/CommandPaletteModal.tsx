@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Code2, History, Layers, Search, Server, Terminal } from 'lucide-react';
+import { isWebRuntime } from '../../core/ipc';
 import { shellService, useShellStore } from '../../core/shellService';
 import { updateService } from '../../core/updateService';
+import { useWebAuthStore } from '../../core/webTransport';
 import { workspaceManager } from '../../core/workspaceManager';
 import { useCommands } from '../../kernel/KernelContext';
 import { layoutService } from '../../layout/layoutStore';
@@ -18,6 +20,8 @@ export const CommandPaletteModal: React.FC = () => {
   const open = useShellStore((s) => s.commandPaletteOpen);
   const hosts = useShellStore((s) => s.hosts);
   const savedWorkspaces = useShellStore((s) => s.savedWorkspaces);
+  const webLocalShellEnabled = useWebAuthStore((s) => s.localShellEnabled);
+  const localShellAllowed = !isWebRuntime() || webLocalShellEnabled;
   const pluginCommands = useCommands();
 
   const [query, setQuery] = useState('');
@@ -32,19 +36,25 @@ export const CommandPaletteModal: React.FC = () => {
 
   const items = useMemo<PaletteItem[]>(() => {
     const coreActions: PaletteItem[] = [
-      {
-        id: 'core-local',
-        group: 'Core',
-        label: 'New Local Shell Connection',
-        run: async () => {
-          await shellService.createLocalSession();
-        },
-      },
+      ...(localShellAllowed
+        ? [
+            {
+              id: 'core-local',
+              group: 'Core',
+              label: 'New Local Shell Connection',
+              run: async () => {
+                await shellService.createLocalSession();
+              },
+            },
+          ]
+        : []),
       {
         id: 'core-host-palette',
         group: 'Core',
         label: 'Open Host Palette',
-        subtitle: 'Recent hosts, saved hosts, and local terminals',
+        subtitle: localShellAllowed
+          ? 'Recent hosts, saved hosts, and local terminals'
+          : 'Recent hosts and saved hosts',
         run: () => shellService.setHostPaletteOpen(true),
       },
       {
@@ -153,7 +163,7 @@ export const CommandPaletteModal: React.FC = () => {
           item.group.toLowerCase().includes(q),
       )
       .slice(0, 32);
-  }, [hosts, savedWorkspaces, pluginCommands, query]);
+  }, [hosts, savedWorkspaces, pluginCommands, query, localShellAllowed]);
 
   if (!open) return null;
 

@@ -591,25 +591,53 @@ describe('Lighterm Web Runtime & Auth Transport', () => {
       expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
     });
 
-    // No local terminal auto-created, Create First Local Shell is hidden, gateway guidance is visible
+    // No local terminal auto-created, + Local Shell & split dropmenu are hidden, gateway guidance is visible
     expect(rpcCalls).not.toContain('terminal_create_local');
     expect(screen.queryByLabelText('Create First Local Shell')).toBeNull();
+    expect(screen.queryByLabelText('Select Local Shell')).toBeNull();
+    expect(screen.queryByRole('menu', { name: 'Local Shell Menu' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Web App Settings' })).toBeTruthy();
 
-    // "+ Shell" opens Host Palette without local terminal entries when localShellEnabled=false
+    // "+ Shell" opens Host Palette without local terminal entries or "local terminals" wording
     fireEvent.click(screen.getByLabelText('Open Host Palette'));
     const webPalette = await screen.findByRole('dialog', { name: 'Host Palette' });
     expect(within(webPalette).queryByText('Local Terminals')).toBeNull();
-    fireEvent.keyDown(within(webPalette).getByRole('textbox'), { key: 'Escape' });
+    const paletteInput = within(webPalette).getByRole('textbox') as HTMLInputElement;
+    expect(paletteInput.placeholder).not.toMatch(/local terminals/i);
+    fireEvent.keyDown(paletteInput, { key: 'Escape' });
+
+    // Command Palette must not list New Local Shell Connection when localShellEnabled=false
+    fireEvent.click(screen.getByLabelText('Command Palette'));
+    const cmdPalette = await screen.findByRole('dialog', { name: 'Command Palette' });
+    expect(within(cmdPalette).queryByText('New Local Shell Connection')).toBeNull();
+    expect(within(cmdPalette).queryByText(/local terminals/i)).toBeNull();
+    fireEvent.keyDown(within(cmdPalette).getByRole('textbox'), { key: 'Escape' });
+
+    // Side Drawer "+" menu must not expose New Terminal when localShellEnabled=false
+    const leftDrawer = screen.getByLabelText('Left Side Drawer');
+    fireEvent.click(within(leftDrawer).getByLabelText('Add Viewport to Left Drawer'));
+    const addMenu = await screen.findByLabelText('Add Viewport Menu left');
+    expect(within(addMenu).queryByRole('menuitem', { name: /New Terminal/i })).toBeNull();
+    fireEvent.click(within(leftDrawer).getByLabelText('Add Viewport to Left Drawer'));
+
+    // Plugin Manager must not expose local terminal spawn buttons when localShellEnabled=false
+    fireEvent.click(screen.getByLabelText('Manage Plugins'));
+    const pluginMgr = await screen.findByRole('dialog', { name: 'Plugin Manager' });
+    expect(within(pluginMgr).queryByLabelText('Left Drawer Terminal Viewport')).toBeNull();
+    expect(within(pluginMgr).queryByLabelText('Right Drawer Terminal Viewport')).toBeNull();
+    expect(within(pluginMgr).queryByLabelText('Bottom Dock Terminal Viewport')).toBeNull();
+    fireEvent.click(within(pluginMgr).getByLabelText('Close Plugin Manager'));
 
     // Open Settings -> Web App directly via button
     fireEvent.click(screen.getByRole('button', { name: 'Web App Settings' }));
     const dialog = await screen.findByRole('dialog', { name: 'Settings' });
 
-    // While localShellEnabled=false, Terminal Settings must hide Default Local Shell altogether
+    // While localShellEnabled=false, Terminal Settings hides Default Local Shell and Shortcuts hides New Local Terminal Session
     const nav = within(dialog).getByRole('navigation', { name: 'Settings Navigation' });
     fireEvent.click(within(nav).getByRole('button', { name: 'Terminal' }));
     expect(within(dialog).queryByRole('combobox', { name: 'Default Local Shell' })).toBeNull();
+    fireEvent.click(within(nav).getByRole('button', { name: 'Shortcuts' }));
+    expect(within(dialog).queryByText('New Local Terminal Session')).toBeNull();
     fireEvent.click(within(nav).getByRole('button', { name: 'Web App' }));
 
     const checkbox = (await within(dialog).findByLabelText(
@@ -627,7 +655,7 @@ describe('Lighterm Web Runtime & Auth Transport', () => {
       expect(useShellStore.getState().localShells).toHaveLength(2);
     });
 
-    // Terminal Settings now shows Default Local Shell with ONLY the Linux server shells (no Windows options)
+    // Terminal Settings now shows Default Local Shell with ONLY the Linux server shells; Shortcuts restores New Local Terminal Session
     fireEvent.click(within(nav).getByRole('button', { name: 'Terminal' }));
     const shellSelect = await within(dialog).findByRole('combobox', {
       name: 'Default Local Shell',
@@ -642,8 +670,23 @@ describe('Lighterm Web Runtime & Auth Transport', () => {
     expect(within(shellListbox).queryByRole('option', { name: /PowerShell/i })).toBeNull();
     expect(within(shellListbox).queryByRole('option', { name: /Command Prompt/i })).toBeNull();
 
+    fireEvent.click(within(nav).getByRole('button', { name: 'Shortcuts' }));
+    expect(within(dialog).getByText('New Local Terminal Session')).toBeTruthy();
+
     fireEvent.click(within(dialog).getByLabelText('Close Settings'));
     expect(await screen.findByLabelText('Create First Local Shell')).toBeTruthy();
+    expect(screen.getByLabelText('Select Local Shell')).toBeTruthy();
+
+    // Command Palette and Side Drawer "+" menu restore local shell actions
+    fireEvent.click(screen.getByLabelText('Command Palette'));
+    const cmdPaletteEnabled = await screen.findByRole('dialog', { name: 'Command Palette' });
+    expect(within(cmdPaletteEnabled).getByText('New Local Shell Connection')).toBeTruthy();
+    fireEvent.keyDown(within(cmdPaletteEnabled).getByRole('textbox'), { key: 'Escape' });
+
+    fireEvent.click(within(leftDrawer).getByLabelText('Add Viewport to Left Drawer'));
+    const addMenuEnabled = await screen.findByLabelText('Add Viewport Menu left');
+    expect(within(addMenuEnabled).getByRole('menuitem', { name: /New Terminal/i })).toBeTruthy();
+    fireEvent.click(within(leftDrawer).getByLabelText('Add Viewport to Left Drawer'));
 
     // Now Host Palette shows Local Terminals from the Linux host
     fireEvent.click(screen.getByLabelText('Open Host Palette'));
