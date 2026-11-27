@@ -401,9 +401,10 @@ fn detect_platform_shells(
             let bin = p
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or("shell");
-            let label = friendly_unix_shell_name(bin);
-            push_shell_candidate(profiles, seen, bin, &label, p, Some("User login shell"));
+                .unwrap_or("shell")
+                .to_string();
+            let label = friendly_unix_shell_name(&bin);
+            push_shell_candidate(profiles, seen, &bin, &label, p, Some("User login shell"));
         }
     }
 
@@ -418,9 +419,10 @@ fn detect_platform_shells(
                 let bin = p
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("shell");
-                let label = friendly_unix_shell_name(bin);
-                push_shell_candidate(profiles, seen, bin, &label, p, Some("System shell"));
+                    .unwrap_or("shell")
+                    .to_string();
+                let label = friendly_unix_shell_name(&bin);
+                push_shell_candidate(profiles, seen, &bin, &label, p, Some("System shell"));
             }
         }
     }
