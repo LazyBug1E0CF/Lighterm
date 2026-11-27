@@ -59,10 +59,6 @@ export async function bootstrapLightermKernel(): Promise<void> {
     const localShellDisabled =
       isWebRuntime() && !useWebAuthStore.getState().localShellEnabled;
 
-    if (shellService.listSessions().length === 0 && !localShellDisabled) {
-      await shellService.createLocalSession();
-    }
-
     if (localShellDisabled) {
       layoutService.setDrawerOpen('left', true);
     }

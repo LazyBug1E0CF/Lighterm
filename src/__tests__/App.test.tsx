@@ -20,11 +20,15 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
-      expect(useShellStore.getState().sessionOrder.length).toBeGreaterThanOrEqual(1);
+      expect(useShellStore.getState().sessionOrder).toHaveLength(0);
       expect(pluginKernel.isPluginActive('lighterm.terminal')).toBe(true);
       expect(pluginKernel.isPluginActive('lighterm.hosts')).toBe(true);
       expect(pluginKernel.isPluginActive('lighterm.monitor')).toBe(true);
     });
+
+    // Startup shows empty two-column workspace start screen instead of opening a local shell by default
+    expect(screen.getByLabelText('Workspace Start Actions')).toBeTruthy();
+    expect(screen.getByLabelText('Recent Hosts')).toBeTruthy();
 
     // Verify Left & Right collapsible drawers and rail buttons exist
     const leftDrawerAside = screen.getByLabelText('Left Side Drawer');
@@ -40,10 +44,19 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     const workspacesTablist = screen.getByRole('tablist', { name: 'Workspaces' });
     const ws1Tab = within(workspacesTablist).getByRole('tab', { name: /Workspace 1/i });
     expect(ws1Tab.getAttribute('aria-selected')).toBe('true');
-    expect(screen.getAllByLabelText('New Local Terminal')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Open Host Palette')).toHaveLength(1);
 
-    // Open a second local terminal session and split horizontally in Workspace 1
-    fireEvent.click(screen.getByLabelText('New Local Terminal'));
+    // Open first local terminal from start screen
+    fireEvent.click(screen.getByLabelText('Create First Local Shell'));
+    await waitFor(() => {
+      expect(useShellStore.getState().sessionOrder.length).toBeGreaterThanOrEqual(1);
+      expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
+    });
+
+    // Open a second local terminal session via "+ Shell" Host Palette, then split horizontally
+    fireEvent.click(screen.getByLabelText('Open Host Palette'));
+    const hostPalette = await screen.findByRole('dialog', { name: 'Host Palette' });
+    fireEvent.click(within(hostPalette).getByText('Windows PowerShell'));
     await waitFor(() => {
       expect(useShellStore.getState().sessionOrder.length).toBeGreaterThanOrEqual(2);
     });
@@ -55,7 +68,7 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
 
     // Multi-group mode switches controls cleanly to WorkspaceShellToolbar without duplicates
     expect(screen.getByLabelText('Workspace Shell Toolbar')).toBeTruthy();
-    expect(screen.getAllByLabelText('New Local Terminal')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Open Host Palette')).toHaveLength(1);
 
     // Switch through Quick Shell Layout presets (Grid -> VSP -> HSP -> Tab)
     fireEvent.click(screen.getByLabelText('Layout Grid'));
@@ -74,13 +87,12 @@ describe('Lighterm Everything-is-a-Plugin & Side Drawers integration', () => {
     expect(useLayoutStore.getState().activeLayoutPreset).toBe('tab');
     expect(collectGroups(useLayoutStore.getState().dockRoot)).toHaveLength(1);
 
-    // Create Workspace 2 via upper bar -> gets its own shell; switching back preserves Workspace 1
+    // Create Workspace 2 via upper bar -> starts empty (no auto-opened shell); switching back preserves Workspace 1
     fireEvent.click(screen.getByLabelText('New Workspace'));
     const ws2Tab = await within(workspacesTablist).findByRole('tab', { name: /Workspace 2/i });
     expect(ws2Tab.getAttribute('aria-selected')).toBe('true');
-    await waitFor(() => {
-      expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
-    });
+    expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(0);
+    expect(screen.getByLabelText('Workspace Start Actions')).toBeTruthy();
 
     fireEvent.click(ws1Tab);
     expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(3);

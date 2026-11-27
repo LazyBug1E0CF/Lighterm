@@ -1,8 +1,6 @@
 import React from 'react';
 import { Columns2, Layers, LayoutGrid, Plus, Rows2 } from 'lucide-react';
-import { isWebRuntime } from '../core/ipc';
 import { shellService } from '../core/shellService';
-import { useWebAuthStore } from '../core/webTransport';
 import { layoutService, useLayoutStore } from './layoutStore';
 import type { QuickShellLayoutPreset } from './types';
 
@@ -46,19 +44,16 @@ const PRESET_OPTIONS: PresetOption[] = [
 ];
 
 export const NewShellButton: React.FC = () => {
-  const localShellEnabled = useWebAuthStore((s) => s.localShellEnabled);
-  if (isWebRuntime() && !localShellEnabled) return null;
-
   return (
     <button
       type="button"
       data-no-drag="true"
       onClick={(e) => {
         e.stopPropagation();
-        void shellService.createLocalSession();
+        shellService.setHostPaletteOpen(true);
       }}
-      title="New Local Terminal (Ctrl+Shift+T)"
-      aria-label="New Local Terminal"
+      title="Open Host Palette"
+      aria-label="Open Host Palette"
       className="h-6 px-2 rounded flex items-center gap-1 shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] border border-transparent hover:border-[var(--border-subtle)] transition-colors"
     >
       <Plus className="w-3.5 h-3.5" />

@@ -47,6 +47,9 @@ describe('Standardized Plugin System, Settings Plugins Section & Default Viewpor
 
   it('places viewports at registered defaultPosition (left-drawer, right-drawer, bottom, float), preserves bottom split, and resets layout cleanly', async () => {
     await bootstrapLightermKernel();
+    await act(async () => {
+      await shellService.createLocalSession({ title: 'Terminal 1' });
+    });
 
     act(() => {
       pluginKernel.register(

@@ -128,6 +128,8 @@ pub struct AppSettings {
     pub scrollback: u32,
     pub background_opacity: f32,
     pub copy_on_select: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_local_shell: Option<String>,
     pub shortcuts: ShortcutMap,
 }
 
@@ -144,6 +146,7 @@ impl Default for AppSettings {
             scrollback: 10000,
             background_opacity: 0.96,
             copy_on_select: false,
+            default_local_shell: None,
             shortcuts: ShortcutMap::default(),
         }
     }
@@ -360,6 +363,40 @@ impl Default for UpdatePreferences {
             last_checked_at: None,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalShellProfile {
+    pub id: String,
+    pub name: String,
+    pub shell: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub is_default: bool,
+}
+
+fn default_connect_count() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentHostEntry {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    pub last_connected_at: i64,
+    #[serde(default = "default_connect_count")]
+    pub connect_count: u32,
 }
 
 

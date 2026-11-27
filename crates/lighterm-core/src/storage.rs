@@ -10,7 +10,11 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::error::{CoreError, CoreResult};
-use crate::models::{AppSettings, HostConfig, SavedWorkspace, UpdatePreferences, WindowBounds};
+use crate::models::{
+    AppSettings, HostConfig, RecentHostEntry, SavedWorkspace, UpdatePreferences, WindowBounds,
+};
+
+pub const MAX_RECENT_HOSTS: usize = 20;
 
 pub struct Storage {
     data_dir: PathBuf,
@@ -385,6 +389,39 @@ impl Storage {
         self.write_json_atomic("update-state.json", &prefs, false)?;
         Ok(prefs)
     }
+
+    // ---- Recent Hosts ----
+
+    pub fn list_recent_hosts(&self) -> CoreResult<Vec<RecentHostEntry>> {
+        let _guard = self.lock.lock();
+        let path = self.file_path("recent-hosts.json");
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let Ok(raw) = fs::read_to_string(&path) else {
+            return Ok(Vec::new());
+        };
+        if raw.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut entries = serde_json::from_str::<Vec<RecentHostEntry>>(&raw).unwrap_or_default();
+        entries.sort_by(|a, b| b.last_connected_at.cmp(&a.last_connected_at));
+        Ok(entries)
+    }
+
+    pub fn save_recent_hosts(
+        &self,
+        mut entries: Vec<RecentHostEntry>,
+    ) -> CoreResult<Vec<RecentHostEntry>> {
+        entries.sort_by(|a, b| b.last_connected_at.cmp(&a.last_connected_at));
+        let mut seen = std::collections::HashSet::new();
+        entries.retain(|entry| !entry.key.trim().is_empty() && seen.insert(entry.key.clone()));
+        entries.truncate(MAX_RECENT_HOSTS);
+
+        let _guard = self.lock.lock();
+        self.write_json_atomic("recent-hosts.json", &entries, false)?;
+        Ok(entries)
+    }
 }
 
 #[cfg(test)]
@@ -577,5 +614,55 @@ mod workspace_tests {
             .expect("clamped top bar");
         assert_eq!(clamped_top.x, 460);
         assert_eq!(clamped_top.y, 190);
+    }
+
+    #[test]
+    fn recent_hosts_persist_sort_dedup_and_cap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let storage = Storage::new(dir.path().to_path_buf()).expect("storage");
+
+        assert!(storage.list_recent_hosts().expect("initial empty").is_empty());
+
+        let mut input = Vec::new();
+        for i in 0..25 {
+            input.push(RecentHostEntry {
+                key: format!("host:h-{i}"),
+                host_id: Some(format!("h-{i}")),
+                name: format!("Host {i}"),
+                group: Some("Prod".to_string()),
+                host: format!("10.0.0.{i}"),
+                port: 22,
+                username: "deploy".to_string(),
+                color: None,
+                last_connected_at: 1000 + i as i64,
+                connect_count: 1,
+            });
+        }
+        // Older duplicate of h-24 should be dropped in favor of the newer one
+        input.push(RecentHostEntry {
+            key: "host:h-24".to_string(),
+            host_id: Some("h-24".to_string()),
+            name: "Host 24 Old".to_string(),
+            group: None,
+            host: "10.0.0.24".to_string(),
+            port: 22,
+            username: "deploy".to_string(),
+            color: None,
+            last_connected_at: 500,
+            connect_count: 1,
+        });
+
+        let saved = storage.save_recent_hosts(input).expect("save recent");
+        assert_eq!(saved.len(), MAX_RECENT_HOSTS);
+        assert_eq!(saved[0].key, "host:h-24");
+        assert_eq!(saved[0].name, "Host 24");
+        assert_eq!(saved[MAX_RECENT_HOSTS - 1].key, "host:h-5");
+
+        let reloaded = storage.list_recent_hosts().expect("reload recent");
+        assert_eq!(reloaded, saved);
+
+        // Corrupt JSON recovers safely
+        fs::write(dir.path().join("recent-hosts.json"), "{not-valid-json").expect("corrupt");
+        assert!(storage.list_recent_hosts().expect("corrupt fallback").is_empty());
     }
 }

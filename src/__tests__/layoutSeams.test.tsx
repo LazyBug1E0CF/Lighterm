@@ -40,6 +40,10 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
       expect(useShellStore.getState().initialized).toBe(true);
       expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
       expect(useLayoutStore.getState().rightDrawer.open).toBe(true);
+    });
+
+    fireEvent.click(screen.getByLabelText('Create First Local Shell'));
+    await waitFor(() => {
       expect(layoutService.findViewportsByType('terminal.viewport').length).toBeGreaterThanOrEqual(1);
     });
 
@@ -111,6 +115,10 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
+    });
+
+    fireEvent.click(screen.getByLabelText('Create First Local Shell'));
+    await waitFor(() => {
       expect(layoutService.findViewportsByType('terminal.viewport').length).toBeGreaterThanOrEqual(1);
     });
 
@@ -123,7 +131,7 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
 
     // Single terminal group + bottom SFTP must NOT render WorkspaceShellToolbar (no duplicate Terminal 1 tab row)
     expect(screen.queryByLabelText('Workspace Shell Toolbar')).toBeNull();
-    expect(screen.getAllByLabelText('New Local Terminal')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Open Host Palette')).toHaveLength(1);
     expect(screen.getAllByRole('tab', { name: /Terminal 1/i })).toHaveLength(1);
 
     const groups = Array.from(container.querySelectorAll<HTMLElement>('[data-group-container]'));
@@ -131,8 +139,8 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
     const sftpGroup = groups.find((g) => g.querySelector('[data-viewport-type="sftp.browser"]'));
     expect(termGroup).toBeTruthy();
     expect(sftpGroup).toBeTruthy();
-    expect(within(termGroup!).getByLabelText('New Local Terminal')).toBeTruthy();
-    expect(within(sftpGroup!).queryByLabelText('New Local Terminal')).toBeNull();
+    expect(within(termGroup!).getByLabelText('Open Host Palette')).toBeTruthy();
+    expect(within(sftpGroup!).queryByLabelText('Open Host Palette')).toBeNull();
 
     // Splitting into 2 terminal groups switches controls to WorkspaceShellToolbar without duplicates
     fireEvent.click(screen.getByLabelText('Split Horizontally'));
@@ -141,57 +149,54 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
     });
 
     expect(screen.getByLabelText('Workspace Shell Toolbar')).toBeTruthy();
-    expect(screen.getAllByLabelText('New Local Terminal')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Open Host Palette')).toHaveLength(1);
   }, 15000);
 
-  it('creates new local shells via both + New Local Shell and + Shell after closing terminals/SFTP and after plugin HMR', async () => {
+  it('creates new local shells via both + New Local Shell and + Shell Host Palette after closing terminals/SFTP and after plugin HMR', async () => {
     render(<App />);
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
-      expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
-    });
-
-    // Open SFTP Browser, then close Terminal 1 and SFTP Browser to enter empty workspace state
-    fireEvent.click(screen.getByRole('button', { name: /SFTP/i }));
-    expect(await screen.findByLabelText('SFTP File Browser')).toBeTruthy();
-
-    fireEvent.click(screen.getByLabelText('Close Terminal 1'));
-    await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(0);
     });
 
+    // Startup shows empty workspace start view; open SFTP Browser, then close SFTP Browser
+    fireEvent.click(screen.getByRole('button', { name: /SFTP/i }));
+    expect(await screen.findByLabelText('SFTP File Browser')).toBeTruthy();
+
     fireEvent.click(screen.getByLabelText('Close SFTP Browser'));
-    expect(await screen.findByText(/No central viewports open/i)).toBeTruthy();
+    expect(await screen.findByLabelText('Workspace Start Actions')).toBeTruthy();
     expect(screen.getByLabelText('Create First Local Shell')).toBeTruthy();
-    expect(screen.getByLabelText('New Local Terminal')).toBeTruthy();
+    expect(screen.getByLabelText('Open Host Palette')).toBeTruthy();
 
     // 1) Clicking "+ New Local Shell" opens a new terminal viewport
     fireEvent.click(screen.getByLabelText('Create First Local Shell'));
     await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
-      expect(screen.queryByText(/No central viewports open/i)).toBeNull();
+      expect(screen.queryByLabelText('Workspace Start Actions')).toBeNull();
     });
 
-    // 2) Closing it again and clicking "+ Shell" opens a new terminal viewport
+    // 2) Closing it again and clicking "+ Shell" opens Host Palette, then picking a local terminal creates a viewport
     fireEvent.click(screen.getByLabelText('Close Terminal 1'));
-    expect(await screen.findByText(/No central viewports open/i)).toBeTruthy();
+    expect(await screen.findByLabelText('Workspace Start Actions')).toBeTruthy();
 
-    fireEvent.click(screen.getByLabelText('New Local Terminal'));
+    fireEvent.click(screen.getByLabelText('Open Host Palette'));
+    const palette1 = await screen.findByRole('dialog', { name: 'Host Palette' });
+    fireEvent.click(within(palette1).getByText('Windows PowerShell'));
     await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
-      expect(screen.queryByText(/No central viewports open/i)).toBeNull();
+      expect(screen.queryByLabelText('Workspace Start Actions')).toBeNull();
     });
 
-    // 3) Simulate Vite HMR re-evaluating plugins/index.ts & terminal/index.tsx: both buttons must keep working cleanly
+    // 3) Simulate Vite HMR re-evaluating plugins/index.ts & terminal/index.tsx: both paths must keep working cleanly
     act(() => {
       registerBuiltinPlugins(pluginKernel);
       pluginKernel.register({ ...terminalPlugin });
     });
     expect(pluginKernel.isPluginActive(terminalPlugin.id)).toBe(true);
 
-    fireEvent.click(screen.getByLabelText('Close Terminal 1'));
-    expect(await screen.findByText(/No central viewports open/i)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Close Windows PowerShell'));
+    expect(await screen.findByLabelText('Workspace Start Actions')).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText('Create First Local Shell'));
     await waitFor(() => {
@@ -200,9 +205,11 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
     });
 
     fireEvent.click(screen.getByLabelText('Close Terminal 1'));
-    expect(await screen.findByText(/No central viewports open/i)).toBeTruthy();
+    expect(await screen.findByLabelText('Workspace Start Actions')).toBeTruthy();
 
-    fireEvent.click(screen.getByLabelText('New Local Terminal'));
+    fireEvent.click(screen.getByLabelText('Open Host Palette'));
+    const palette2 = await screen.findByRole('dialog', { name: 'Host Palette' });
+    fireEvent.click(within(palette2).getByText('Windows PowerShell'));
     await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
       expect(useShellStore.getState().sessionOrder).toHaveLength(1);
@@ -214,6 +221,10 @@ describe('Workspace layout seams (zero-gap drawer sashes & 1px split hairlines)'
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
+    });
+
+    fireEvent.click(screen.getByLabelText('Create First Local Shell'));
+    await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
     });
 

@@ -482,6 +482,33 @@ describe('Lighterm Web Runtime & Auth Transport', () => {
               headers: { 'Content-Type': 'application/json' },
             });
           }
+          case 'terminal_list_local_shells':
+            return new Response(
+              JSON.stringify(
+                serverAllowLocalShell
+                  ? [
+                      {
+                        id: 'bash',
+                        name: 'Bash',
+                        shell: '/bin/bash',
+                        description: 'Bourne Again Shell',
+                        isDefault: true,
+                      },
+                      {
+                        id: 'sh',
+                        name: 'POSIX Shell',
+                        shell: '/bin/sh',
+                        description: 'Standard system shell',
+                        isDefault: false,
+                      },
+                    ]
+                  : [],
+              ),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            );
           case 'monitor_get_stats':
             return new Response(
               JSON.stringify({
@@ -564,15 +591,27 @@ describe('Lighterm Web Runtime & Auth Transport', () => {
       expect(useLayoutStore.getState().leftDrawer.open).toBe(true);
     });
 
-    // No local terminal auto-created, New Local Terminal button is hidden, gateway guidance is visible
+    // No local terminal auto-created, Create First Local Shell is hidden, gateway guidance is visible
     expect(rpcCalls).not.toContain('terminal_create_local');
-    expect(screen.queryByLabelText('New Local Terminal')).toBeNull();
     expect(screen.queryByLabelText('Create First Local Shell')).toBeNull();
     expect(screen.getByRole('button', { name: 'Web App Settings' })).toBeTruthy();
+
+    // "+ Shell" opens Host Palette without local terminal entries when localShellEnabled=false
+    fireEvent.click(screen.getByLabelText('Open Host Palette'));
+    const webPalette = await screen.findByRole('dialog', { name: 'Host Palette' });
+    expect(within(webPalette).queryByText('Local Terminals')).toBeNull();
+    fireEvent.keyDown(within(webPalette).getByRole('textbox'), { key: 'Escape' });
 
     // Open Settings -> Web App directly via button
     fireEvent.click(screen.getByRole('button', { name: 'Web App Settings' }));
     const dialog = await screen.findByRole('dialog', { name: 'Settings' });
+
+    // While localShellEnabled=false, Terminal Settings must hide Default Local Shell altogether
+    const nav = within(dialog).getByRole('navigation', { name: 'Settings Navigation' });
+    fireEvent.click(within(nav).getByRole('button', { name: 'Terminal' }));
+    expect(within(dialog).queryByRole('combobox', { name: 'Default Local Shell' })).toBeNull();
+    fireEvent.click(within(nav).getByRole('button', { name: 'Web App' }));
+
     const checkbox = (await within(dialog).findByLabelText(
       'Allow Local Shell',
     )) as HTMLInputElement;
@@ -585,9 +624,31 @@ describe('Lighterm Web Runtime & Auth Transport', () => {
       expect(serverAllowLocalShell).toBe(true);
       expect(useWebAuthStore.getState().localShellEnabled).toBe(true);
       expect(checkbox.checked).toBe(true);
+      expect(useShellStore.getState().localShells).toHaveLength(2);
     });
+
+    // Terminal Settings now shows Default Local Shell with ONLY the Linux server shells (no Windows options)
+    fireEvent.click(within(nav).getByRole('button', { name: 'Terminal' }));
+    const shellSelect = await within(dialog).findByRole('combobox', {
+      name: 'Default Local Shell',
+    });
+    expect(shellSelect.textContent).toContain('Auto (Bash)');
+    fireEvent.click(shellSelect);
+    const shellListbox = await within(dialog).findByRole('listbox', {
+      name: 'Default Local Shell options',
+    });
+    expect(within(shellListbox).getByRole('option', { name: /^Bash/i })).toBeTruthy();
+    expect(within(shellListbox).getByRole('option', { name: /^POSIX Shell/i })).toBeTruthy();
+    expect(within(shellListbox).queryByRole('option', { name: /PowerShell/i })).toBeNull();
+    expect(within(shellListbox).queryByRole('option', { name: /Command Prompt/i })).toBeNull();
 
     fireEvent.click(within(dialog).getByLabelText('Close Settings'));
     expect(await screen.findByLabelText('Create First Local Shell')).toBeTruthy();
+
+    // Now Host Palette shows Local Terminals from the Linux host
+    fireEvent.click(screen.getByLabelText('Open Host Palette'));
+    const unlockedPalette = await screen.findByRole('dialog', { name: 'Host Palette' });
+    expect(within(unlockedPalette).getByText('Local Terminals')).toBeTruthy();
+    expect(within(unlockedPalette).getByText('Bash')).toBeTruthy();
   });
 });

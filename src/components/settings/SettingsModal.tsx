@@ -724,6 +724,9 @@ export const SettingsModal: React.FC = () => {
                       setWebError(null);
                       void webSettings
                         .save({ allowLocalShell: nextVal })
+                        .then(() => {
+                          void shellService.listLocalShells();
+                        })
                         .catch((err) => {
                           setWebError(err instanceof Error ? err.message : String(err));
                         })

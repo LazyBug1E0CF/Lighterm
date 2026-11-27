@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Minimize2, Plus, Server, Settings, Terminal } from 'lucide-react';
+import { Minimize2, Terminal } from 'lucide-react';
 import { isWebRuntime } from '../core/ipc';
 import { shellService, useShellStore } from '../core/shellService';
 import { useWebAuthStore } from '../core/webTransport';
@@ -18,6 +18,7 @@ import { layoutService, useLayoutStore } from './layoutStore';
 import { NewShellButton, QuickShellLayoutButtons } from './QuickShellLayoutBar';
 import { SideDrawer } from './SideDrawer';
 import type { DockEdge, DockZone, DrawerSide, SnapTarget } from './types';
+import { WorkspaceEmptyView } from './WorkspaceEmptyView';
 
 interface SplitSeparatorOverlayProps {
   sep: DockSplitSeparatorSlot;
@@ -505,50 +506,7 @@ export const WorkspaceCanvas: React.FC = () => {
               })}
             </>
           ) : visibleFloating.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-muted)] px-4 text-center">
-              {localShellAllowed ? (
-                <>
-                  <p>
-                    No central viewports open. Create a shell or drag any drawer/floating viewport
-                    here.
-                  </p>
-                  <button
-                    type="button"
-                    aria-label="Create First Local Shell"
-                    onClick={() => void shellService.createLocalSession()}
-                    className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    New Local Shell
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="max-w-md leading-relaxed">
-                    Local shell is disabled in Web App mode by default. Connect to an SSH host from
-                    the left drawer, or enable local shell in Settings → Web App.
-                  </p>
-                  <div className="flex items-center gap-2 flex-wrap justify-center">
-                    <button
-                      type="button"
-                      onClick={() => shellService.openHostModal(null)}
-                      className="h-8 px-3 rounded-md bg-[var(--accent)] text-[#0f111a] font-medium flex items-center gap-1.5 hover:opacity-90"
-                    >
-                      <Server className="w-3.5 h-3.5" />
-                      New SSH Host
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => shellService.openSettings('web')}
-                      className="h-8 px-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--accent)] flex items-center gap-1.5"
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                      Web App Settings
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <WorkspaceEmptyView localShellAllowed={localShellAllowed} />
           ) : (
             <div className="flex-1" />
           )}

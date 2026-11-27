@@ -105,6 +105,7 @@ export interface AppSettings {
   scrollback: number;
   backgroundOpacity: number;
   copyOnSelect: boolean;
+  defaultLocalShell?: string | null;
   shortcuts: ShortcutMap;
 }
 
@@ -298,3 +299,24 @@ export interface DownloadedUpdate {
 }
 
 export type UpdateDownloadStatus = 'idle' | 'downloading' | 'verifying' | 'ready' | 'error';
+
+export interface LocalShellProfile {
+  id: string;
+  name: string;
+  shell: string;
+  description?: string | null;
+  isDefault: boolean;
+}
+
+export interface RecentHostEntry {
+  key: string;
+  hostId?: string | null;
+  name: string;
+  group?: string | null;
+  host: string;
+  port: number;
+  username: string;
+  color?: string | null;
+  lastConnectedAt: number;
+  connectCount: number;
+}

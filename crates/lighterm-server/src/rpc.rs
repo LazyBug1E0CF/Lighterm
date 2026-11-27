@@ -8,7 +8,8 @@ use axum::Json;
 use bytes::Bytes;
 use lighterm_core::error::{CoreError, CoreResult};
 use lighterm_core::models::{
-    AppSettings, ConnectionTestResult, HostConfig, SavedWorkspace, SessionKind, UpdatePreferences,
+    AppSettings, ConnectionTestResult, HostConfig, RecentHostEntry, SavedWorkspace, SessionKind,
+    UpdatePreferences,
 };
 use lighterm_core::ssh::connect_host;
 use lighterm_core::LightermCore;
@@ -118,6 +119,12 @@ struct SessionIdArgs {
 #[serde(rename_all = "camelCase")]
 struct HostArgs {
     host: HostConfig,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveRecentHostsArgs {
+    entries: Vec<RecentHostEntry>,
 }
 
 #[derive(Deserialize)]
@@ -316,11 +323,25 @@ async fn dispatch_rpc(
             let core = Arc::clone(&state.core);
             let sink = Arc::clone(&state.event_sink);
             let info = run_blocking(CoreError::PtyError, move || {
+                let resolved_shell = args
+                    .shell
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        core.storage
+                            .get_settings()
+                            .ok()
+                            .and_then(|s| {
+                                lighterm_core::pty::resolve_configured_default_shell(
+                                    s.default_local_shell.as_deref(),
+                                )
+                            })
+                    });
                 core.sessions.create_local(
                     args.cols,
                     args.rows,
                     args.cwd,
-                    args.shell,
+                    resolved_shell,
                     args.title,
                     sink,
                 )
@@ -371,6 +392,16 @@ async fn dispatch_rpc(
             let list = state.core.sessions.list_sessions();
             Ok(serde_json::to_value(list).map_err(|e| CoreError::PtyError(e.to_string()))?)
         }
+        "terminal_list_local_shells" => {
+            if !state.is_local_shell_enabled() {
+                return Ok(serde_json::json!([]));
+            }
+            let shells = run_blocking(CoreError::PtyError, || {
+                Ok(lighterm_core::pty::detect_local_shells())
+            })
+            .await?;
+            Ok(serde_json::to_value(shells).map_err(|e| CoreError::PtyError(e.to_string()))?)
+        }
 
         // ---- Hosts ----
         "hosts_list" => {
@@ -419,6 +450,22 @@ async fn dispatch_rpc(
                 },
             };
             Ok(serde_json::to_value(res).map_err(|e| CoreError::SshError(e.to_string()))?)
+        }
+        "recent_hosts_list" => {
+            let core = Arc::clone(&state.core);
+            let list =
+                run_blocking(CoreError::StorageError, move || core.storage.list_recent_hosts())
+                    .await?;
+            Ok(serde_json::to_value(list).map_err(|e| CoreError::StorageError(e.to_string()))?)
+        }
+        "recent_hosts_save" => {
+            let args: SaveRecentHostsArgs = parse_args(raw_args)?;
+            let core = Arc::clone(&state.core);
+            let saved = run_blocking(CoreError::StorageError, move || {
+                core.storage.save_recent_hosts(args.entries)
+            })
+            .await?;
+            Ok(serde_json::to_value(saved).map_err(|e| CoreError::StorageError(e.to_string()))?)
         }
 
         // ---- Workspaces ----

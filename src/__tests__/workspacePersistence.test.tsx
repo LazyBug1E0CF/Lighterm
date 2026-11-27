@@ -31,6 +31,13 @@ describe('Workspace Rename, Save, Hosts Discovery & Layout Restoration', () => {
 
     await waitFor(() => {
       expect(useShellStore.getState().initialized).toBe(true);
+      expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(0);
+    });
+
+    await act(async () => {
+      await shellService.createLocalSession({ title: 'Terminal 1' });
+    });
+    await waitFor(() => {
       expect(layoutService.findWorkspaceViewportsByType('terminal.viewport')).toHaveLength(1);
     });
 
@@ -203,6 +210,7 @@ describe('Workspace Rename, Save, Hosts Discovery & Layout Restoration', () => {
     });
 
     await act(async () => {
+      await shellService.createLocalSession({ title: 'Terminal 1' });
       await shellService.createLocalSession({ title: 'API Watch' });
     });
 

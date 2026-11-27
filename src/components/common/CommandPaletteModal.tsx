@@ -41,12 +41,18 @@ export const CommandPaletteModal: React.FC = () => {
         },
       },
       {
+        id: 'core-host-palette',
+        group: 'Core',
+        label: 'Open Host Palette',
+        subtitle: 'Recent hosts, saved hosts, and local terminals',
+        run: () => shellService.setHostPaletteOpen(true),
+      },
+      {
         id: 'core-new-workspace',
         group: 'Core',
         label: 'New Workspace',
-        run: async () => {
+        run: () => {
           layoutService.createWorkspace();
-          await shellService.createLocalSession();
         },
       },
       {

@@ -121,9 +121,6 @@ export const ShellTopBar: React.FC = () => {
 
   const handleNewWorkspace = () => {
     layoutService.createWorkspace();
-    if (!webMode || useWebAuthStore.getState().localShellEnabled) {
-      void shellService.createLocalSession();
-    }
   };
 
   const commitRename = () => {

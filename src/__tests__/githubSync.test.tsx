@@ -131,7 +131,7 @@ describe('GitHub Config Sync Plugin (Zero-Config OAuth & Managed Gist)', () => {
     expect(useShellStore.getState().hosts).toHaveLength(1);
     expect(useShellStore.getState().hosts[0].name).toBe('Prod API 01');
     expect(useShellStore.getState().settings.themeId).toBe('dracula');
-    expect(await screen.findByText('Prod API 01')).toBeTruthy();
+    expect(await within(screen.getByLabelText('Left Side Drawer')).findByText('Prod API 01')).toBeTruthy();
 
     // Encrypted sync with passphrase restores SSH passwords across devices
     await act(async () => {

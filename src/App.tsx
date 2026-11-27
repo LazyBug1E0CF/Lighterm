@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { CommandPaletteModal } from './components/common/CommandPaletteModal';
+import { HostPaletteModal } from './components/common/HostPaletteModal';
 import { HostFormModal } from './components/hosts/HostFormModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { PluginManagerModal } from './components/shell/PluginManagerModal';
@@ -154,6 +155,7 @@ const LightermShell: React.FC = () => {
       <HostFormModal />
       <SettingsModal />
       <CommandPaletteModal />
+      <HostPaletteModal />
       <PluginManagerModal />
       <UpdateModal />
     </div>

@@ -6,8 +6,9 @@ use std::time::Instant;
 use lighterm_core::error::{CoreError, CoreResult};
 use lighterm_core::events::CoreEventSink;
 use lighterm_core::models::{
-    AppSettings, ConnectionTestResult, HostConfig, MonitorRect, PluginInfo, SavedWorkspace,
-    SessionInfo, SessionKind, SessionStatus, UpdatePreferences, WindowBounds,
+    AppSettings, ConnectionTestResult, HostConfig, LocalShellProfile, MonitorRect, PluginInfo,
+    RecentHostEntry, SavedWorkspace, SessionInfo, SessionKind, SessionStatus, UpdatePreferences,
+    WindowBounds,
 };
 use lighterm_core::ssh::connect_host;
 use lighterm_core::updater::{
@@ -340,8 +341,21 @@ pub async fn terminal_create_local(
     let core = Arc::clone(&state.core);
     let sink = sink_for(&app);
     run_blocking(CoreError::PtyError, move || {
+        let resolved_shell = shell
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                core.storage
+                    .get_settings()
+                    .ok()
+                    .and_then(|s| {
+                        lighterm_core::pty::resolve_configured_default_shell(
+                            s.default_local_shell.as_deref(),
+                        )
+                    })
+            });
         core.sessions
-            .create_local(cols, rows, cwd, shell, title, sink)
+            .create_local(cols, rows, cwd, resolved_shell, title, sink)
     })
     .await
 }
@@ -401,6 +415,11 @@ pub fn terminal_list(state: State<'_, AppState>) -> Vec<SessionInfo> {
     state.core.sessions.list_sessions()
 }
 
+#[tauri::command]
+pub fn terminal_list_local_shells() -> Vec<LocalShellProfile> {
+    lighterm_core::pty::detect_local_shells()
+}
+
 // ---- Core Hosts Commands ----
 
 #[tauri::command]
@@ -446,6 +465,24 @@ pub async fn hosts_test_connection(host: HostConfig) -> ConnectionTestResult {
             message: err.to_string(),
         },
     }
+}
+
+#[tauri::command]
+pub async fn recent_hosts_list(state: State<'_, AppState>) -> CoreResult<Vec<RecentHostEntry>> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || core.storage.list_recent_hosts()).await
+}
+
+#[tauri::command]
+pub async fn recent_hosts_save(
+    state: State<'_, AppState>,
+    entries: Vec<RecentHostEntry>,
+) -> CoreResult<Vec<RecentHostEntry>> {
+    let core = Arc::clone(&state.core);
+    run_blocking(CoreError::StorageError, move || {
+        core.storage.save_recent_hosts(entries)
+    })
+    .await
 }
 
 // ---- Core Workspaces Commands ----

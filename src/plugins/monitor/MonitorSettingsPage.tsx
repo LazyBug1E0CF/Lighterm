@@ -1,5 +1,6 @@
 import React from 'react';
 import { RotateCcw } from 'lucide-react';
+import { CustomSelect, type SelectOption } from '../../components/common/CustomSelect';
 import { type PluginSettingsPageProps, usePluginConfig } from '../../kernel';
 import {
   DEFAULT_MONITOR_CONFIG,
@@ -7,6 +8,18 @@ import {
   monitorPanelService,
   useMonitorPanelStore,
 } from './monitorPanelStore';
+
+const POLL_INTERVAL_OPTIONS: SelectOption[] = [
+  { value: '1000', label: '1 second (1000ms)' },
+  { value: '2500', label: '2.5 seconds (2500ms)' },
+  { value: '5000', label: '5 seconds (5000ms)' },
+  { value: '10000', label: '10 seconds (10000ms)' },
+];
+
+const PROCESS_SORT_OPTIONS: SelectOption[] = [
+  { value: 'cpu', label: 'CPU Usage (%)' },
+  { value: 'mem', label: 'Memory Usage (RSS)' },
+];
 
 export const MonitorSettingsPage: React.FC<PluginSettingsPageProps> = ({ pluginId }) => {
   const { config, updateConfig, resetConfig } = usePluginConfig(
@@ -18,41 +31,33 @@ export const MonitorSettingsPage: React.FC<PluginSettingsPageProps> = ({ pluginI
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
-        <label className="block">
+        <div>
           <span className="font-semibold text-[var(--text-primary)] block mb-1">
             Sampling Refresh Interval
           </span>
-          <select
-            aria-label="Monitor Refresh Interval"
-            value={config.pollIntervalMs}
-            onChange={(e) => void updateConfig({ pollIntervalMs: Number(e.target.value) })}
-            className="w-full h-8 px-2 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-          >
-            <option value={1000}>1 second (1000ms)</option>
-            <option value={2500}>2.5 seconds (2500ms)</option>
-            <option value={5000}>5 seconds (5000ms)</option>
-            <option value={10000}>10 seconds (10000ms)</option>
-          </select>
-        </label>
+          <CustomSelect
+            ariaLabel="Monitor Refresh Interval"
+            value={String(config.pollIntervalMs)}
+            options={POLL_INTERVAL_OPTIONS}
+            onChange={(val) => void updateConfig({ pollIntervalMs: Number(val) })}
+          />
+        </div>
 
-        <label className="block">
+        <div>
           <span className="font-semibold text-[var(--text-primary)] block mb-1">
             Default Process Sort
           </span>
-          <select
-            aria-label="Default Process Sort"
+          <CustomSelect
+            ariaLabel="Default Process Sort"
             value={config.defaultProcessSort}
-            onChange={(e) =>
+            options={PROCESS_SORT_OPTIONS}
+            onChange={(val) =>
               void updateConfig({
-                defaultProcessSort: e.target.value === 'mem' ? 'mem' : 'cpu',
+                defaultProcessSort: val === 'mem' ? 'mem' : 'cpu',
               })
             }
-            className="w-full h-8 px-2 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
-          >
-            <option value="cpu">CPU Usage (%)</option>
-            <option value="mem">Memory Usage (RSS)</option>
-          </select>
-        </label>
+          />
+        </div>
       </div>
 
       <div>

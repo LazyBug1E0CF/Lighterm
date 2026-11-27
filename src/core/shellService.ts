@@ -3,6 +3,8 @@ import type {
   AppSettings,
   ConnectionTestResult,
   HostConfig,
+  LocalShellProfile,
+  RecentHostEntry,
   SavedWorkspace,
   SessionInfo,
   SessionKind,
@@ -13,10 +15,219 @@ import { DEFAULT_SHORTCUTS } from '../utils/shortcuts';
 import { hasBackendRuntime, invokeBackend, listenBackend, makeUuid, readLs, writeLs } from './ipc';
 
 const LS_HOSTS = 'lighterm:hosts';
+const LS_RECENT_HOSTS = 'lighterm:recent-hosts';
 const LS_WORKSPACES = 'lighterm:workspaces';
 const LS_SETTINGS = 'lighterm:settings';
+const MAX_RECENT_HOSTS = 20;
 const MAX_HISTORY_BYTES = 256 * 1024;
 const MAX_EARLY_CHUNKS = 256;
+
+export function getFallbackLocalShells(): LocalShellProfile[] {
+  const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+  const ua = `${nav?.platform ?? ''} ${nav?.userAgent ?? ''}`.toLowerCase();
+  const isWindows = ua.includes('win') || (!ua.includes('mac') && !ua.includes('linux'));
+  const isMac = ua.includes('mac');
+
+  if (isWindows) {
+    return [
+      {
+        id: 'pwsh',
+        name: 'PowerShell 7',
+        shell: 'pwsh.exe',
+        description: 'Cross-platform PowerShell',
+        isDefault: true,
+      },
+      {
+        id: 'powershell',
+        name: 'Windows PowerShell',
+        shell: 'powershell.exe',
+        description: 'Built-in Windows PowerShell',
+        isDefault: false,
+      },
+      {
+        id: 'cmd',
+        name: 'Command Prompt',
+        shell: 'cmd.exe',
+        description: 'Windows Command Processor',
+        isDefault: false,
+      },
+      {
+        id: 'git-bash',
+        name: 'Git Bash',
+        shell: 'bash.exe',
+        description: 'Git for Windows Bash',
+        isDefault: false,
+      },
+      {
+        id: 'wsl',
+        name: 'WSL',
+        shell: 'wsl.exe',
+        description: 'Windows Subsystem for Linux',
+        isDefault: false,
+      },
+    ];
+  }
+
+  if (isMac) {
+    return [
+      {
+        id: 'zsh',
+        name: 'Zsh',
+        shell: '/bin/zsh',
+        description: 'Z Shell',
+        isDefault: true,
+      },
+      {
+        id: 'bash',
+        name: 'Bash',
+        shell: '/bin/bash',
+        description: 'Bourne Again Shell',
+        isDefault: false,
+      },
+      {
+        id: 'sh',
+        name: 'POSIX Shell',
+        shell: '/bin/sh',
+        description: 'Standard system shell',
+        isDefault: false,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: 'bash',
+      name: 'Bash',
+      shell: '/bin/bash',
+      description: 'Bourne Again Shell',
+      isDefault: true,
+    },
+    {
+      id: 'zsh',
+      name: 'Zsh',
+      shell: '/bin/zsh',
+      description: 'Z Shell',
+      isDefault: false,
+    },
+    {
+      id: 'sh',
+      name: 'POSIX Shell',
+      shell: '/bin/sh',
+      description: 'Standard system shell',
+      isDefault: false,
+    },
+  ];
+}
+
+export function formatRelativeTime(ts: number): string {
+  const diffMs = Math.max(0, Date.now() - ts);
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+export function resolveRecentHostEntry(
+  entry: RecentHostEntry,
+  hosts: HostConfig[],
+): { entry: RecentHostEntry; savedHost?: HostConfig } {
+  const savedHost = entry.hostId ? hosts.find((h) => h.id === entry.hostId) : undefined;
+  if (!savedHost) {
+    return { entry };
+  }
+  return {
+    savedHost,
+    entry: {
+      ...entry,
+      name: savedHost.name || `${savedHost.username}@${savedHost.host}`,
+      group: savedHost.group || null,
+      host: savedHost.host,
+      port: savedHost.port,
+      username: savedHost.username,
+      color: savedHost.color ?? null,
+    },
+  };
+}
+
+export function getEffectiveLocalShells(localShells: LocalShellProfile[]): LocalShellProfile[] {
+  if (hasBackendRuntime()) {
+    return localShells;
+  }
+  return localShells.length > 0 ? localShells : getFallbackLocalShells();
+}
+
+export function resolveEffectiveDefaultLocalShell(
+  settings: AppSettings,
+  localShells: LocalShellProfile[],
+): {
+  shell?: string;
+  profile?: LocalShellProfile;
+  isConfigured: boolean;
+  isAvailableOnSystem: boolean;
+} {
+  const effectiveShells = getEffectiveLocalShells(localShells);
+  const autoProfile = effectiveShells.find((p) => p.isDefault) ?? effectiveShells[0];
+  const configured = settings.defaultLocalShell?.trim();
+  if (configured) {
+    const norm = configured.toLowerCase();
+    const matched = effectiveShells.find(
+      (p) => p.shell.trim().toLowerCase() === norm || p.id.toLowerCase() === norm,
+    );
+    if (matched) {
+      return {
+        shell: matched.shell,
+        profile: matched,
+        isConfigured: true,
+        isAvailableOnSystem: true,
+      };
+    }
+    return {
+      shell: autoProfile?.shell,
+      profile: autoProfile,
+      isConfigured: true,
+      isAvailableOnSystem: false,
+    };
+  }
+  return {
+    shell: autoProfile?.shell,
+    profile: autoProfile,
+    isConfigured: false,
+    isAvailableOnSystem: Boolean(autoProfile),
+  };
+}
+
+export function orderLocalShellsByDefault(
+  shells: LocalShellProfile[],
+  effectiveDefault: { shell?: string; profile?: LocalShellProfile },
+): { profile: LocalShellProfile; isDefault: boolean }[] {
+  const mapped = shells.map((profile) => {
+    const isDefault =
+      effectiveDefault.profile?.id === profile.id ||
+      effectiveDefault.shell?.toLowerCase() === profile.shell.toLowerCase();
+    return { profile, isDefault };
+  });
+  return mapped.sort((a, b) => {
+    if (a.isDefault === b.isDefault) return 0;
+    return a.isDefault ? -1 : 1;
+  });
+}
+
+function normalizeRecentHosts(entries: RecentHostEntry[]): RecentHostEntry[] {
+  const sorted = [...entries].sort((a, b) => b.lastConnectedAt - a.lastConnectedAt);
+  const seen = new Set<string>();
+  const out: RecentHostEntry[] = [];
+  for (const entry of sorted) {
+    if (!entry.key || seen.has(entry.key)) continue;
+    seen.add(entry.key);
+    out.push(entry);
+    if (out.length >= MAX_RECENT_HOSTS) break;
+  }
+  return out;
+}
 
 export interface ShellSessionRecord {
   info: SessionInfo;
@@ -35,6 +246,9 @@ export interface ShellStoreState {
   sessionMessages: Record<string, string | undefined>;
   sessionDimensions: Record<string, { cols: number; rows: number }>;
   hosts: HostConfig[];
+  recentHosts: RecentHostEntry[];
+  localShells: LocalShellProfile[];
+  localShellsLoaded: boolean;
   savedWorkspaces: SavedWorkspace[];
   settings: AppSettings;
 
@@ -43,6 +257,7 @@ export interface ShellStoreState {
   settingsModalOpen: boolean;
   settingsActiveTab: string;
   commandPaletteOpen: boolean;
+  hostPaletteOpen: boolean;
   pluginManagerOpen: boolean;
   statusBannerError: string | null;
 }
@@ -58,6 +273,7 @@ export function createDefaultSettings(): AppSettings {
     scrollback: 10000,
     backgroundOpacity: 0.96,
     copyOnSelect: false,
+    defaultLocalShell: null,
     shortcuts: { ...DEFAULT_SHORTCUTS },
   };
 }
@@ -110,6 +326,9 @@ export const useShellStore = create<ShellStoreState>(() => ({
   sessionMessages: {},
   sessionDimensions: {},
   hosts: [],
+  recentHosts: [],
+  localShells: [],
+  localShellsLoaded: false,
   savedWorkspaces: [],
   settings: createDefaultSettings(),
 
@@ -118,6 +337,7 @@ export const useShellStore = create<ShellStoreState>(() => ({
   settingsModalOpen: false,
   settingsActiveTab: 'appearance',
   commandPaletteOpen: false,
+  hostPaletteOpen: false,
   pluginManagerOpen: false,
   statusBannerError: null,
 }));
@@ -296,9 +516,11 @@ export class ShellService {
 
     initPromise = (async () => {
       await ensureTauriListeners();
-      const [settings, hosts, savedWorkspaces] = await Promise.all([
+      const [settings, hosts, recentHosts, localShells, savedWorkspaces] = await Promise.all([
         this.loadSettings().catch(() => createDefaultSettings()),
         this.listHosts().catch(() => [] as HostConfig[]),
+        this.listRecentHosts().catch(() => [] as RecentHostEntry[]),
+        this.listLocalShells().catch(() => getFallbackLocalShells()),
         this.listSavedWorkspaces().catch(() => [] as SavedWorkspace[]),
       ]);
       const defaults = createDefaultSettings();
@@ -309,6 +531,8 @@ export class ShellService {
           shortcuts: { ...defaults.shortcuts, ...settings.shortcuts },
         },
         hosts,
+        recentHosts,
+        localShells,
         savedWorkspaces,
         initialized: true,
       });
@@ -330,8 +554,12 @@ export class ShellService {
   }): Promise<SessionInfo | null> {
     const cols = params?.cols ?? 100;
     const rows = params?.rows ?? 30;
-    const count = useShellStore.getState().sessionOrder.length + 1;
+    const state = useShellStore.getState();
+    const count = state.sessionOrder.length + 1;
     const title = params?.title ?? `Terminal ${count}`;
+    const effectiveShell = params?.shell?.trim()
+      ? params.shell.trim()
+      : resolveEffectiveDefaultLocalShell(state.settings, state.localShells).shell;
 
     try {
       let info: SessionInfo;
@@ -341,7 +569,7 @@ export class ShellService {
           cols,
           rows,
           cwd: params?.cwd,
-          shell: params?.shell,
+          shell: effectiveShell,
           title,
         });
       } else {
@@ -361,7 +589,7 @@ export class ShellService {
       const record: ShellSessionRecord = {
         info,
         cwd: params?.cwd,
-        shell: params?.shell,
+        shell: effectiveShell,
       };
       useShellStore.setState((state) => ({
         sessions: { ...state.sessions, [info.id]: record },
@@ -451,6 +679,11 @@ export class ShellService {
 
       sessionCreatedListeners.forEach((cb) => cb(record, params.meta));
       activeSessionListeners.forEach((cb) => cb(info.id));
+
+      if (resolvedHost) {
+        const isSaved = useShellStore.getState().hosts.some((h) => h.id === resolvedHost.id);
+        void this.recordRecentHost(resolvedHost, isSaved);
+      }
 
       if (!hasBackendRuntime()) {
         const user = resolvedHost?.username ?? 'deploy';
@@ -732,9 +965,11 @@ export class ShellService {
   }
 
   async reloadAll(): Promise<void> {
-    const [settings, hosts, savedWorkspaces] = await Promise.all([
+    const [settings, hosts, recentHosts, localShells, savedWorkspaces] = await Promise.all([
       this.loadSettings().catch(() => createDefaultSettings()),
       this.listHosts().catch(() => [] as HostConfig[]),
+      this.listRecentHosts().catch(() => [] as RecentHostEntry[]),
+      this.listLocalShells().catch(() => getFallbackLocalShells()),
       this.listSavedWorkspaces().catch(() => [] as SavedWorkspace[]),
     ]);
     const defaults = createDefaultSettings();
@@ -745,6 +980,8 @@ export class ShellService {
         shortcuts: { ...defaults.shortcuts, ...settings.shortcuts },
       },
       hosts,
+      recentHosts,
+      localShells,
       savedWorkspaces,
     });
     configReloadedListeners.forEach((cb) => {
@@ -796,7 +1033,129 @@ export class ShellService {
       writeLs(LS_HOSTS, hosts);
     }
     await this.listHosts();
+    const currentRecent = useShellStore.getState().recentHosts;
+    if (currentRecent.some((entry) => entry.hostId === id)) {
+      await this.saveRecentHostsList(currentRecent.filter((entry) => entry.hostId !== id));
+    }
     this.notifyConfigMutated('hosts');
+  }
+
+  // ---- Local Shells & Recent Hosts ----
+
+  async listLocalShells(): Promise<LocalShellProfile[]> {
+    let shells: LocalShellProfile[];
+    if (hasBackendRuntime()) {
+      try {
+        const res = await invokeBackend<LocalShellProfile[] | null>('terminal_list_local_shells');
+        shells = Array.isArray(res) ? res : [];
+      } catch {
+        shells = [];
+      }
+    } else {
+      shells = getFallbackLocalShells();
+    }
+    useShellStore.setState({ localShells: shells, localShellsLoaded: true });
+    return shells;
+  }
+
+  async listRecentHosts(): Promise<RecentHostEntry[]> {
+    let raw: RecentHostEntry[];
+    if (hasBackendRuntime()) {
+      try {
+        const res = await invokeBackend<RecentHostEntry[] | null>('recent_hosts_list');
+        raw = Array.isArray(res) ? res : [];
+      } catch {
+        raw = [];
+      }
+    } else {
+      const stored = readLs<RecentHostEntry[]>(LS_RECENT_HOSTS, () => []);
+      raw = Array.isArray(stored) ? stored : [];
+    }
+    const normalized = normalizeRecentHosts(raw);
+    useShellStore.setState({ recentHosts: normalized });
+    return normalized;
+  }
+
+  async saveRecentHostsList(entries: RecentHostEntry[]): Promise<RecentHostEntry[]> {
+    const normalized = normalizeRecentHosts(entries);
+    useShellStore.setState({ recentHosts: normalized });
+    if (hasBackendRuntime()) {
+      try {
+        const res = await invokeBackend<RecentHostEntry[] | null>('recent_hosts_save', {
+          entries: normalized,
+        });
+        if (Array.isArray(res)) {
+          const saved = normalizeRecentHosts(res);
+          useShellStore.setState({ recentHosts: saved });
+          return saved;
+        }
+      } catch {
+        // Keep optimistic state on transient backend errors
+      }
+    } else {
+      writeLs(LS_RECENT_HOSTS, normalized);
+    }
+    return normalized;
+  }
+
+  async recordRecentHost(host: HostConfig, isSaved: boolean): Promise<RecentHostEntry[]> {
+    const hostAddr = host.host.trim();
+    const username = host.username.trim();
+    if (!hostAddr || !username) {
+      return useShellStore.getState().recentHosts;
+    }
+    const port = host.port || 22;
+    const key =
+      isSaved && host.id.trim()
+        ? `host:${host.id}`
+        : `quick:${username.toLowerCase()}@${hostAddr.toLowerCase()}:${port}`;
+
+    const existing = useShellStore.getState().recentHosts;
+    const prev = existing.find((item) => item.key === key);
+    const nextEntry: RecentHostEntry = {
+      key,
+      hostId: isSaved && host.id.trim() ? host.id : null,
+      name: host.name.trim() || `${username}@${hostAddr}`,
+      group: host.group?.trim() ? host.group.trim() : null,
+      host: hostAddr,
+      port,
+      username,
+      color: host.color ?? null,
+      lastConnectedAt: Date.now(),
+      connectCount: (prev?.connectCount ?? 0) + 1,
+    };
+
+    return this.saveRecentHostsList([nextEntry, ...existing.filter((item) => item.key !== key)]);
+  }
+
+  async removeRecentHost(key: string): Promise<RecentHostEntry[]> {
+    const next = useShellStore.getState().recentHosts.filter((item) => item.key !== key);
+    return this.saveRecentHostsList(next);
+  }
+
+  async clearRecentHosts(): Promise<void> {
+    await this.saveRecentHostsList([]);
+  }
+
+  async connectRecentHost(entry: RecentHostEntry): Promise<SessionInfo | null> {
+    const savedHost = entry.hostId
+      ? useShellStore.getState().hosts.find((h) => h.id === entry.hostId)
+      : undefined;
+    if (savedHost) {
+      return this.createSshSession({ hostId: savedHost.id, hostConfig: savedHost });
+    }
+    const tempHost: HostConfig = {
+      id: makeUuid('quick'),
+      name: entry.name || `${entry.username}@${entry.host}`,
+      group: entry.group || 'Quick Connect',
+      host: entry.host,
+      port: entry.port || 22,
+      username: entry.username,
+      auth: { type: 'privateKey' },
+      color: entry.color ?? null,
+      updatedAt: Date.now(),
+    };
+    return this.createSshSession({ hostConfig: tempHost });
   }
 
   async testHostConnection(host: HostConfig): Promise<ConnectionTestResult> {
@@ -931,7 +1290,17 @@ export class ShellService {
   }
 
   setCommandPaletteOpen(open: boolean): void {
-    useShellStore.setState({ commandPaletteOpen: open });
+    useShellStore.setState((state) => ({
+      commandPaletteOpen: open,
+      hostPaletteOpen: open ? false : state.hostPaletteOpen,
+    }));
+  }
+
+  setHostPaletteOpen(open: boolean): void {
+    useShellStore.setState((state) => ({
+      hostPaletteOpen: open,
+      commandPaletteOpen: open ? false : state.commandPaletteOpen,
+    }));
   }
 
   setPluginManagerOpen(open: boolean): void {
@@ -970,6 +1339,9 @@ export class ShellService {
       sessionMessages: {},
       sessionDimensions: {},
       hosts: [],
+      recentHosts: [],
+      localShells: [],
+      localShellsLoaded: false,
       savedWorkspaces: [],
       settings: createDefaultSettings(),
       hostModalOpen: false,
@@ -977,6 +1349,7 @@ export class ShellService {
       settingsModalOpen: false,
       settingsActiveTab: 'appearance',
       commandPaletteOpen: false,
+      hostPaletteOpen: false,
       pluginManagerOpen: false,
       statusBannerError: null,
     });
