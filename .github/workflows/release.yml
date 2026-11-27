@@ -47,7 +47,6 @@ jobs:
       publish_release: ${{ steps.meta.outputs.publish_release }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
       ghcr_image: ${{ steps.meta.outputs.ghcr_image }}
-      dockerhub_image: ${{ steps.meta.outputs.dockerhub_image }}
 
     steps:
       - name: Checkout repository
@@ -89,11 +88,6 @@ jobs:
 
           TAG="v${VERSION}"
           GHCR_IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
-          if [ -n "${DOCKERHUB_USERNAME}" ]; then
-            DOCKERHUB_IMAGE="${DOCKERHUB_USERNAME,,}/lighterm"
-          else
-            DOCKERHUB_IMAGE=""
-          fi
 
           if [ "${PUBLISH_DOCKER}" = "true" ]; then
             if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
@@ -140,7 +134,6 @@ jobs:
           echo "publish_release=${PUBLISH_RELEASE}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
           echo "ghcr_image=${GHCR_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
 
   build-windows:
     name: Build Windows Installer (x64)
@@ -354,6 +347,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Resolve Docker Hub image name
+        id: dockerhub
+        if: needs.prepare.outputs.publish_docker == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          echo "image=${DOCKERHUB_USERNAME,,}/lighterm" >> "$GITHUB_OUTPUT"
+
       - name: Build and push by digest
         id: build
         if: needs.prepare.outputs.publish_docker == 'true'
@@ -369,7 +370,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.licenses=MIT
-          outputs: type=image,"name=${{ needs.prepare.outputs.ghcr_image }},${{ needs.prepare.outputs.dockerhub_image }}",push-by-digest=true,name-canonical=true
+          outputs: type=image,"name=${{ needs.prepare.outputs.ghcr_image }},${{ steps.dockerhub.outputs.image }}",push-by-digest=true,name-canonical=true
           cache-from: type=gha,scope=lighterm-web-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=lighterm-web-${{ matrix.arch }}
 
@@ -488,8 +489,10 @@ jobs:
           docker buildx imagetools inspect "${GHCR_IMAGE}:${VERSION}"
 
       - name: Publish multi-arch manifest to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          DOCKERHUB_IMAGE="${{ needs.prepare.outputs.dockerhub_image }}"
+          DOCKERHUB_IMAGE="${DOCKERHUB_USERNAME,,}/lighterm"
           VERSION="${{ needs.prepare.outputs.version }}"
           ARGS=(-t "${DOCKERHUB_IMAGE}:${VERSION}")
           if [ "${{ needs.prepare.outputs.push_latest }}" = "true" ]; then
@@ -533,9 +536,14 @@ jobs:
           PUBLISH_DOCKER: ${{ needs.prepare.outputs.publish_docker }}
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
           GHCR_IMAGE: ${{ needs.prepare.outputs.ghcr_image }}
-          DOCKERHUB_IMAGE: ${{ needs.prepare.outputs.dockerhub_image }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           shopt -s nullglob
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            DOCKERHUB_IMAGE="${DOCKERHUB_USERNAME,,}/lighterm"
+          else
+            DOCKERHUB_IMAGE=""
+          fi
           ASSETS=(/tmp/release-assets/*)
           if [ "${#ASSETS[@]}" -eq 0 ]; then
             echo "::error::No release assets found in /tmp/release-assets."
