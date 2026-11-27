@@ -7,9 +7,11 @@ import { useShellStore } from '../core/shellService';
 import {
   PERIODIC_UPDATE_CHECK_INTERVAL_MS,
   STARTUP_UPDATE_CHECK_DELAY_MS,
+  WEB_RESTART_POLL_INTERVAL_MS,
   updateService,
   useUpdateStore,
 } from '../core/updateService';
+import { resetWebTransportForTesting, type WebRuntimeConfig } from '../core/webTransport';
 import { KernelProvider } from '../kernel/KernelContext';
 import { pluginKernel } from '../kernel/PluginKernel';
 import { resetLightermKernelForTesting } from '../plugins';
@@ -109,7 +111,11 @@ describe('GitHub Release Update Checker UI & Flows', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    delete (window as Window & { __LIGHTERM_WEB__?: WebRuntimeConfig }).__LIGHTERM_WEB__;
+    resetWebTransportForTesting();
     resetLightermKernelForTesting();
   });
 
@@ -428,5 +434,160 @@ describe('GitHub Release Update Checker UI & Flows', () => {
       await vi.advanceTimersByTimeAsync(PERIODIC_UPDATE_CHECK_INTERVAL_MS);
     });
     expect(mockInvoke.mock.calls.filter((c) => c[0] === 'updater_check')).toHaveLength(2);
+  });
+
+  it('supports in-container Web App self-update download, restart polling, auto-reload, and fallback when disabled', async () => {
+    vi.useFakeTimers();
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    (window as Window & { __LIGHTERM_WEB__?: WebRuntimeConfig }).__LIGHTERM_WEB__ = {
+      mode: 'web',
+      version: '0.1.3',
+      authRequired: false,
+      usernameRequired: false,
+      authenticated: true,
+      localShellEnabled: false,
+      selfUpdateEnabled: true,
+    };
+    resetWebTransportForTesting();
+    updateService.resetForTesting();
+
+    let canAutoDownload = false;
+    let healthCallCount = 0;
+    const rpcCalls: string[] = [];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/rpc/')) {
+        const cmd = decodeURIComponent(url.split('/api/rpc/')[1] ?? '');
+        rpcCalls.push(cmd);
+        if (cmd === 'updater_get_state') {
+          return new Response(
+            JSON.stringify({ autoCheck: true, skippedVersion: null, lastCheckedAt: null }),
+            { status: 200 },
+          );
+        }
+        if (cmd === 'updater_check') {
+          return new Response(
+            JSON.stringify(
+              makeUpdateResult({
+                currentVersion: '0.1.3',
+                canAutoDownload,
+                asset: canAutoDownload
+                  ? {
+                      name: 'lighterm-web-0.3.1-linux-amd64.tar.gz',
+                      downloadUrl: 'https://example.com/lighterm-web-0.3.1-linux-amd64.tar.gz',
+                      size: 6_000_000,
+                      sha256Url:
+                        'https://example.com/lighterm-web-0.3.1-linux-amd64.tar.gz.sha256',
+                    }
+                  : null,
+              }),
+            ),
+            { status: 200 },
+          );
+        }
+        if (cmd === 'updater_download') {
+          return new Response(
+            JSON.stringify({
+              downloadId: 'upd-web-1',
+              version: '0.3.1',
+              assetName: 'lighterm-web-0.3.1-linux-amd64.tar.gz',
+              filePath: '/data/updates/0.3.1/lighterm-web-0.3.1-linux-amd64.tar.gz',
+              sizeBytes: 6_000_000,
+              sha256: 'b'.repeat(64),
+              sha256Verified: true,
+            } satisfies DownloadedUpdate),
+            { status: 200 },
+          );
+        }
+        if (cmd === 'updater_install') {
+          return new Response(
+            JSON.stringify({
+              version: '0.3.1',
+              releaseDir: '/data/app/releases/0.3.1',
+              binaryPath: '/data/app/releases/0.3.1/lighterm-server',
+              staticDir: '/data/app/releases/0.3.1/dist',
+            }),
+            { status: 200 },
+          );
+        }
+      }
+      if (url.includes('/api/health')) {
+        healthCallCount += 1;
+        if (healthCallCount === 1) {
+          throw new Error('ECONNREFUSED');
+        }
+        return new Response(JSON.stringify({ status: 'ok', version: '0.3.1' }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+    const reloadSpy = vi.spyOn(updateService, 'reloadBrowserPage').mockImplementation(() => {});
+
+    await updateService.initialize();
+    await act(async () => {
+      await updateService.checkForUpdates({ manual: true });
+      updateService.openModal();
+    });
+
+    const { rerender } = render(
+      <KernelProvider kernel={pluginKernel}>
+        <ShellTopBar />
+        <UpdateModal />
+      </KernelProvider>,
+    );
+
+    // When canAutoDownload is false in Web mode, falls back to Open Release Page.
+    const dialogDisabled = screen.getByRole('dialog', { name: 'Update Available' });
+    expect(within(dialogDisabled).getByRole('button', { name: 'Open Release Page' })).toBeTruthy();
+
+    // Enable in-container self-update and re-check.
+    canAutoDownload = true;
+    await act(async () => {
+      await updateService.checkForUpdates({ manual: true });
+    });
+    rerender(
+      <KernelProvider kernel={pluginKernel}>
+        <ShellTopBar />
+        <UpdateModal />
+      </KernelProvider>,
+    );
+
+    const dialogEnabled = screen.getByRole('dialog', { name: 'Update Available' });
+    const updateNowBtn = within(dialogEnabled).getByRole('button', { name: 'Update Now' });
+
+    await act(async () => {
+      fireEvent.click(updateNowBtn);
+    });
+
+    expect(rpcCalls).toContain('updater_download');
+    expect(useUpdateStore.getState().downloadStatus).toBe('ready');
+    expect(
+      within(dialogEnabled).getByText(/Ready to apply lighterm-web-0\.3\.1-linux-amd64\.tar\.gz/i),
+    ).toBeTruthy();
+
+    // Click Install & Restart -> enters restarting state and polls /api/health until v0.3.1
+    await act(async () => {
+      fireEvent.click(within(dialogEnabled).getByRole('button', { name: 'Install & Restart' }));
+    });
+    expect(rpcCalls).toContain('updater_install');
+    expect(useUpdateStore.getState().downloadStatus).toBe('restarting');
+    expect(within(dialogEnabled).getByRole('status')).toBeTruthy();
+    expect(reloadSpy).not.toHaveBeenCalled();
+
+    // First poll hits transient disconnect
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(WEB_RESTART_POLL_INTERVAL_MS);
+    });
+    expect(healthCallCount).toBe(1);
+    expect(reloadSpy).not.toHaveBeenCalled();
+
+    // Second poll sees new version 0.3.1 and reloads page
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(WEB_RESTART_POLL_INTERVAL_MS);
+    });
+    expect(healthCallCount).toBe(2);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
   });
 });

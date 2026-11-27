@@ -12,6 +12,7 @@ use lighterm_core::models::{
     UpdatePreferences,
 };
 use lighterm_core::ssh::connect_host;
+use lighterm_core::updater::{UpdateAssetInfo, UpdateTarget};
 use lighterm_core::LightermCore;
 use lighterm_plugin_history::HistoryPlugin;
 use lighterm_plugin_monitor::MonitorPlugin;
@@ -274,6 +275,26 @@ struct UpdaterSavePrefsArgs {
 struct UpdaterOpenUrlArgs {
     #[allow(dead_code)]
     url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterDownloadArgs {
+    download_id: String,
+    version: String,
+    asset: UpdateAssetInfo,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterCancelArgs {
+    download_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdaterInstallArgs {
+    file_path: String,
 }
 
 pub async fn rpc_handler(
@@ -836,26 +857,63 @@ async fn dispatch_rpc(
             Ok(serde_json::to_value(saved).map_err(|e| CoreError::StorageError(e.to_string()))?)
         }
         "updater_check" => {
-            let current_version = std::env::var("LIGHTERM_APP_VERSION")
-                .ok()
-                .map(|v| v.trim().to_string())
-                .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+            let current_version = crate::current_server_version();
             let res = state
                 .core
                 .updater
-                .check_for_updates(&current_version, false)
+                .check_for_updates_with_target(
+                    &current_version,
+                    UpdateTarget::WebBundle,
+                    state.is_self_update_enabled(),
+                )
                 .await?;
             Ok(serde_json::to_value(res).map_err(|e| CoreError::PluginError(e.to_string()))?)
+        }
+        "updater_download" => {
+            if !state.is_self_update_enabled() {
+                return Err(CoreError::InvalidInput(
+                    "In-container self-update is not enabled on this server".to_string(),
+                ));
+            }
+            let args: UpdaterDownloadArgs = parse_args(raw_args)?;
+            let downloaded = state
+                .core
+                .updater
+                .download_update(
+                    args.download_id,
+                    args.version,
+                    args.asset,
+                    Arc::clone(&state.event_sink),
+                )
+                .await?;
+            Ok(serde_json::to_value(downloaded).map_err(|e| CoreError::PluginError(e.to_string()))?)
+        }
+        "updater_cancel_download" => {
+            let args: UpdaterCancelArgs = parse_args(raw_args)?;
+            state
+                .core
+                .updater
+                .cancel_download(args.download_id.as_deref());
+            Ok(serde_json::Value::Null)
+        }
+        "updater_install" => {
+            if !state.is_self_update_enabled() {
+                return Err(CoreError::InvalidInput(
+                    "In-container self-update is not enabled on this server".to_string(),
+                ));
+            }
+            let args: UpdaterInstallArgs = parse_args(raw_args)?;
+            let core = Arc::clone(&state.core);
+            let staged = run_blocking(CoreError::PluginError, move || {
+                core.updater.stage_web_bundle_update(&args.file_path)
+            })
+            .await?;
+            state.schedule_restart(std::time::Duration::from_millis(350));
+            Ok(serde_json::to_value(staged).map_err(|e| CoreError::PluginError(e.to_string()))?)
         }
         "updater_open_url" => {
             let _args: UpdaterOpenUrlArgs = parse_args(raw_args)?;
             Ok(serde_json::Value::Null)
-        }
-        "updater_download" | "updater_cancel_download" | "updater_install" => {
-            Err(CoreError::InvalidInput(
-                "Automatic installer download is only supported in the desktop app".to_string(),
-            ))
         }
 
         _ => Err(CoreError::InvalidInput(format!(

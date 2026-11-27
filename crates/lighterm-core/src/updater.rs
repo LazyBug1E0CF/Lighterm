@@ -20,6 +20,22 @@ use crate::storage::Storage;
 
 pub const DEFAULT_UPDATE_REPO: &str = "LazyBug1E0CF/Lighterm";
 pub const DEFAULT_GITHUB_API_BASE: &str = "https://api.github.com";
+pub const SELF_UPDATE_RESTART_EXIT_CODE: i32 = 42;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateTarget {
+    Desktop,
+    WebBundle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedWebUpdate {
+    pub version: String,
+    pub release_dir: String,
+    pub binary_path: String,
+    pub static_dir: String,
+}
 
 static RUSTLS_INIT: Once = Once::new();
 
@@ -243,18 +259,65 @@ pub fn select_platform_asset(
                 pick_by(&|n| n.ends_with(".dmg") && (n.contains("universal") || !has_opposing_arch_token(n, arch)))
             })
             .or_else(|| pick_by(&|n| n.ends_with(".pkg") && !has_opposing_arch_token(n, arch))),
-        "linux" => pick_by(&|n| n.ends_with(".appimage") && matches_arch_token(n, arch))
-            .or_else(|| pick_by(&|n| n.ends_with(".deb") && matches_arch_token(n, arch)))
-            .or_else(|| pick_by(&|n| n.ends_with(".rpm") && matches_arch_token(n, arch)))
-            .or_else(|| pick_by(&|n| n.ends_with(".tar.gz") && matches_arch_token(n, arch)))
-            .or_else(|| {
-                pick_by(&|n| {
-                    (n.ends_with(".appimage") || n.ends_with(".deb"))
-                        && !has_opposing_arch_token(n, arch)
-                })
-            }),
+        "linux" => pick_by(&|n| {
+            !n.contains("lighterm-web")
+                && n.ends_with(".appimage")
+                && matches_arch_token(n, arch)
+        })
+        .or_else(|| {
+            pick_by(&|n| {
+                !n.contains("lighterm-web") && n.ends_with(".deb") && matches_arch_token(n, arch)
+            })
+        })
+        .or_else(|| {
+            pick_by(&|n| {
+                !n.contains("lighterm-web") && n.ends_with(".rpm") && matches_arch_token(n, arch)
+            })
+        })
+        .or_else(|| {
+            pick_by(&|n| {
+                !n.contains("lighterm-web")
+                    && n.ends_with(".tar.gz")
+                    && matches_arch_token(n, arch)
+            })
+        })
+        .or_else(|| {
+            pick_by(&|n| {
+                !n.contains("lighterm-web")
+                    && (n.ends_with(".appimage") || n.ends_with(".deb"))
+                    && !has_opposing_arch_token(n, arch)
+            })
+        }),
         _ => None,
     }?;
+
+    Some(UpdateAssetInfo {
+        name: chosen.name.clone(),
+        download_url: chosen.browser_download_url.clone(),
+        size: chosen.size,
+        content_type: chosen.content_type.clone(),
+        sha256_url: find_sha256_url(assets, &chosen.name),
+    })
+}
+
+/// Selects the self-update web bundle tarball (e.g. `lighterm-web-<ver>-linux-amd64.tar.gz`)
+/// for the given OS and CPU architecture.
+pub fn select_web_bundle_asset(
+    assets: &[GitHubReleaseAsset],
+    os: &str,
+    arch: &str,
+) -> Option<UpdateAssetInfo> {
+    let os_token = format!("-{}-", os.to_ascii_lowercase());
+    let chosen = assets
+        .iter()
+        .filter(|a| !is_auxiliary_asset(&a.name.to_ascii_lowercase()))
+        .find(|a| {
+            let lower = a.name.to_ascii_lowercase();
+            lower.contains("lighterm-web")
+                && lower.contains(&os_token)
+                && matches_arch_token(&lower, arch)
+                && lower.ends_with(".tar.gz")
+        })?;
 
     Some(UpdateAssetInfo {
         name: chosen.name.clone(),
@@ -475,6 +538,20 @@ impl UpdateManager {
         current_version: &str,
         can_auto_download_platform: bool,
     ) -> CoreResult<UpdateCheckResult> {
+        self.check_for_updates_with_target(
+            current_version,
+            UpdateTarget::Desktop,
+            can_auto_download_platform,
+        )
+        .await
+    }
+
+    pub async fn check_for_updates_with_target(
+        &self,
+        current_version: &str,
+        target: UpdateTarget,
+        can_auto_download_platform: bool,
+    ) -> CoreResult<UpdateCheckResult> {
         let current_ver = parse_semver_tag(current_version).ok_or_else(|| {
             CoreError::InvalidInput(format!("Invalid current version '{current_version}'"))
         })?;
@@ -540,8 +617,16 @@ impl UpdateManager {
             let latest_tag = latest_rel.tag_name.clone();
             let release_url = latest_rel.html_url.clone();
             let published_at = latest_rel.published_at.clone();
-            let asset =
-                select_platform_asset(&latest_rel.assets, std::env::consts::OS, std::env::consts::ARCH);
+            let asset = match target {
+                UpdateTarget::Desktop => {
+                    select_platform_asset(&latest_rel.assets, std::env::consts::OS, std::env::consts::ARCH)
+                }
+                UpdateTarget::WebBundle => select_web_bundle_asset(
+                    &latest_rel.assets,
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                ),
+            };
             let can_auto_download = can_auto_download_platform && asset.is_some();
 
             let is_skipped = prefs
@@ -989,7 +1074,7 @@ impl UpdateManager {
         }
     }
 
-    pub fn install_downloaded_update(&self, file_path: &str) -> CoreResult<()> {
+    fn canonical_update_file_in_updates_dir(&self, file_path: &str) -> CoreResult<PathBuf> {
         let updates_root = self.storage.data_dir().join("updates");
         let canonical_root = updates_root.canonicalize().map_err(|e| {
             CoreError::InvalidInput(format!("Updates directory is unavailable: {e}"))
@@ -1002,6 +1087,11 @@ impl UpdateManager {
                 "Refusing to launch file outside Lighterm updates directory".to_string(),
             ));
         }
+        Ok(canonical_file)
+    }
+
+    pub fn install_downloaded_update(&self, file_path: &str) -> CoreResult<()> {
+        let canonical_file = self.canonical_update_file_in_updates_dir(file_path)?;
 
         #[cfg(target_os = "windows")]
         {
@@ -1052,6 +1142,284 @@ impl UpdateManager {
             }
             Ok(())
         }
+    }
+
+    pub fn stage_web_bundle_update(&self, file_path: &str) -> CoreResult<StagedWebUpdate> {
+        self.stage_web_bundle_update_inner(file_path, cfg!(target_os = "linux"))
+    }
+
+    pub(crate) fn stage_web_bundle_update_inner(
+        &self,
+        file_path: &str,
+        probe_binary: bool,
+    ) -> CoreResult<StagedWebUpdate> {
+        struct TempDirCleanup(Option<PathBuf>);
+        impl Drop for TempDirCleanup {
+            fn drop(&mut self) {
+                if let Some(path) = self.0.take() {
+                    let _ = std::fs::remove_dir_all(path);
+                }
+            }
+        }
+
+        let canonical_file = self.canonical_update_file_in_updates_dir(file_path)?;
+        let app_dir = self.storage.data_dir().join("app");
+        let releases_dir = app_dir.join("releases");
+        std::fs::create_dir_all(&releases_dir).map_err(|e| {
+            CoreError::StorageError(format!(
+                "Failed creating releases directory '{}': {e}",
+                releases_dir.display()
+            ))
+        })?;
+
+        let staging_dir = releases_dir.join(format!(".staging-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&staging_dir).map_err(|e| {
+            CoreError::StorageError(format!(
+                "Failed creating staging directory '{}': {e}",
+                staging_dir.display()
+            ))
+        })?;
+        let mut cleanup = TempDirCleanup(Some(staging_dir.clone()));
+
+        extract_tar_gz_safely(&canonical_file, &staging_dir)?;
+
+        let staged_bin = staging_dir.join("lighterm-server");
+        if !staged_bin.is_file() {
+            return Err(CoreError::InvalidInput(
+                "Web update bundle is missing 'lighterm-server' binary".to_string(),
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&staged_bin, std::fs::Permissions::from_mode(0o755));
+        }
+
+        let staged_dist = staging_dir.join("dist");
+        if !staged_dist.join("index.html").is_file() {
+            return Err(CoreError::InvalidInput(
+                "Web update bundle is missing 'dist/index.html'".to_string(),
+            ));
+        }
+
+        let version_file = staging_dir.join("VERSION");
+        let raw_version = std::fs::read_to_string(&version_file)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                canonical_file
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.trim().to_string())
+            })
+            .ok_or_else(|| {
+                CoreError::InvalidInput(
+                    "Unable to determine version from web update bundle".to_string(),
+                )
+            })?;
+
+        let parsed_ver = parse_semver_tag(&raw_version).ok_or_else(|| {
+            CoreError::InvalidInput(format!("Invalid bundle version '{raw_version}'"))
+        })?;
+        let safe_ver = sanitize_filename(&parsed_ver.to_string())?;
+        std::fs::write(&version_file, format!("{safe_ver}\n")).map_err(|e| {
+            CoreError::StorageError(format!("Failed writing VERSION marker: {e}"))
+        })?;
+
+        if probe_binary {
+            let output = Command::new(&staged_bin)
+                .arg("--version")
+                .stdin(Stdio::null())
+                .output()
+                .map_err(|e| {
+                    CoreError::PluginError(format!(
+                        "Failed verifying staged lighterm-server binary: {e}"
+                    ))
+                })?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(CoreError::PluginError(format!(
+                    "Staged lighterm-server failed compatibility check (exit {:?}): {}",
+                    output.status.code(),
+                    stderr.trim()
+                )));
+            }
+        }
+
+        let final_dir = releases_dir.join(&safe_ver);
+        if final_dir.exists() {
+            std::fs::remove_dir_all(&final_dir).map_err(|e| {
+                CoreError::StorageError(format!(
+                    "Failed replacing existing release directory '{}': {e}",
+                    final_dir.display()
+                ))
+            })?;
+        }
+        std::fs::rename(&staging_dir, &final_dir).map_err(|e| {
+            CoreError::StorageError(format!(
+                "Failed promoting staged release '{}': {e}",
+                final_dir.display()
+            ))
+        })?;
+        cleanup.0 = None;
+
+        // Atomically update active-version marker and `current` symlink.
+        let active_tmp = app_dir.join(".active-version.tmp");
+        let active_final = app_dir.join("active-version");
+        std::fs::write(&active_tmp, format!("{safe_ver}\n")).map_err(|e| {
+            CoreError::StorageError(format!("Failed writing active-version marker: {e}"))
+        })?;
+        if active_final.exists() {
+            let _ = std::fs::remove_file(&active_final);
+        }
+        std::fs::rename(&active_tmp, &active_final).map_err(|e| {
+            CoreError::StorageError(format!("Failed finalizing active-version marker: {e}"))
+        })?;
+
+        #[cfg(unix)]
+        {
+            let tmp_link = app_dir.join(".current.tmp");
+            let current_link = app_dir.join("current");
+            if tmp_link.symlink_metadata().is_ok() {
+                let _ = std::fs::remove_file(&tmp_link);
+            }
+            std::os::unix::fs::symlink(format!("releases/{safe_ver}"), &tmp_link).map_err(|e| {
+                CoreError::StorageError(format!("Failed creating current release symlink: {e}"))
+            })?;
+            std::fs::rename(&tmp_link, &current_link).map_err(|e| {
+                CoreError::StorageError(format!("Failed swapping current release symlink: {e}"))
+            })?;
+        }
+
+        prune_old_releases(&releases_dir, &safe_ver);
+        let _ = std::fs::remove_file(&canonical_file);
+
+        Ok(StagedWebUpdate {
+            version: safe_ver,
+            release_dir: final_dir.to_string_lossy().into_owned(),
+            binary_path: final_dir.join("lighterm-server").to_string_lossy().into_owned(),
+            static_dir: final_dir.join("dist").to_string_lossy().into_owned(),
+        })
+    }
+}
+
+fn extract_tar_gz_safely(archive_path: &Path, dest_dir: &Path) -> CoreResult<()> {
+    let file = std::fs::File::open(archive_path).map_err(|e| {
+        CoreError::StorageError(format!(
+            "Failed opening update bundle '{}': {e}",
+            archive_path.display()
+        ))
+    })?;
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+
+    let entries = archive.entries().map_err(|e| {
+        CoreError::InvalidInput(format!("Invalid tar.gz update bundle: {e}"))
+    })?;
+
+    for entry_res in entries {
+        let mut entry = entry_res.map_err(|e| {
+            CoreError::InvalidInput(format!("Corrupt entry in tar.gz update bundle: {e}"))
+        })?;
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() || (!entry_type.is_dir() && !entry_type.is_file()) {
+            return Err(CoreError::InvalidInput(
+                "Refusing unsupported link or special file in web update bundle".to_string(),
+            ));
+        }
+
+        let raw_path = entry.path().map_err(|e| {
+            CoreError::InvalidInput(format!("Invalid entry path in web update bundle: {e}"))
+        })?;
+
+        let mut clean_rel = PathBuf::new();
+        for comp in raw_path.components() {
+            match comp {
+                std::path::Component::CurDir => {}
+                std::path::Component::Normal(part) => {
+                    let s = part.to_string_lossy();
+                    if s.contains('\\') || s.contains('\0') {
+                        return Err(CoreError::InvalidInput(
+                            "Invalid characters in bundle entry path".to_string(),
+                        ));
+                    }
+                    clean_rel.push(part);
+                }
+                std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_) => {
+                    return Err(CoreError::InvalidInput(format!(
+                        "Refusing unsafe path traversal '{}' in web update bundle",
+                        raw_path.display()
+                    )));
+                }
+            }
+        }
+
+        if clean_rel.as_os_str().is_empty() {
+            continue;
+        }
+
+        let target = dest_dir.join(&clean_rel);
+        if entry_type.is_dir() {
+            std::fs::create_dir_all(&target).map_err(|e| {
+                CoreError::StorageError(format!(
+                    "Failed creating directory '{}': {e}",
+                    target.display()
+                ))
+            })?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    CoreError::StorageError(format!(
+                        "Failed creating parent directory '{}': {e}",
+                        parent.display()
+                    ))
+                })?;
+            }
+            let mut out = std::fs::File::create(&target).map_err(|e| {
+                CoreError::StorageError(format!(
+                    "Failed extracting '{}': {e}",
+                    target.display()
+                ))
+            })?;
+            std::io::copy(&mut entry, &mut out).map_err(|e| {
+                CoreError::StorageError(format!(
+                    "Failed writing extracted file '{}': {e}",
+                    target.display()
+                ))
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn prune_old_releases(releases_dir: &Path, keep_active: &str) {
+    let Ok(entries) = std::fs::read_dir(releases_dir) else {
+        return;
+    };
+    let mut older: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if name.starts_with('.') || name == keep_active || !path.is_dir() {
+            continue;
+        }
+        let mtime = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        older.push((mtime, path));
+    }
+    // Keep at most 1 previous release directory alongside the active one.
+    older.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in older.into_iter().skip(1) {
+        let _ = std::fs::remove_dir_all(path);
     }
 }
 
@@ -1149,6 +1517,139 @@ mod tests {
 
         let linux = select_platform_asset(&assets, "linux", "x86_64").expect("linux asset");
         assert_eq!(linux.name, "Lighterm_0.3.1_amd64.AppImage");
+    }
+
+    #[test]
+    fn selects_web_bundle_assets_separately_from_desktop() {
+        let assets = vec![
+            GitHubReleaseAsset {
+                name: "lighterm-web-0.3.1-linux-amd64.tar.gz".into(),
+                browser_download_url: "https://example.com/web-amd64.tar.gz".into(),
+                size: 5_000_000,
+                content_type: Some("application/gzip".into()),
+            },
+            GitHubReleaseAsset {
+                name: "lighterm-web-0.3.1-linux-amd64.tar.gz.sha256".into(),
+                browser_download_url: "https://example.com/web-amd64.tar.gz.sha256".into(),
+                size: 100,
+                content_type: Some("text/plain".into()),
+            },
+            GitHubReleaseAsset {
+                name: "lighterm-web-0.3.1-linux-arm64.tar.gz".into(),
+                browser_download_url: "https://example.com/web-arm64.tar.gz".into(),
+                size: 5_000_000,
+                content_type: Some("application/gzip".into()),
+            },
+        ];
+
+        assert!(select_platform_asset(&assets, "linux", "x86_64").is_none());
+
+        let amd64 = select_web_bundle_asset(&assets, "linux", "x86_64").expect("web amd64");
+        assert_eq!(amd64.name, "lighterm-web-0.3.1-linux-amd64.tar.gz");
+        assert_eq!(
+            amd64.sha256_url.as_deref(),
+            Some("https://example.com/web-amd64.tar.gz.sha256")
+        );
+
+        let arm64 = select_web_bundle_asset(&assets, "linux", "aarch64").expect("web arm64");
+        assert_eq!(arm64.name, "lighterm-web-0.3.1-linux-arm64.tar.gz");
+        assert!(select_web_bundle_asset(&assets, "windows", "x86_64").is_none());
+    }
+
+    fn build_tar_gz(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        {
+            let mut builder = tar::Builder::new(&mut gz);
+            for (path, data) in entries {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(data.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                builder
+                    .append_data(&mut header, path, std::io::Cursor::new(data))
+                    .expect("append tar entry");
+            }
+            builder.finish().expect("finish tar");
+        }
+        gz.finish().expect("finish gzip")
+    }
+
+    #[test]
+    fn stage_web_bundle_extracts_validates_prunes_and_rejects_traversal() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let storage = Arc::new(Storage::new(dir.path().to_path_buf()).expect("storage"));
+        let manager = UpdateManager::new(Arc::clone(&storage));
+
+        // Seed older releases to verify pruning keeps active + 1 previous
+        std::fs::create_dir_all(dir.path().join("app/releases/0.1.0")).unwrap();
+        std::fs::create_dir_all(dir.path().join("app/releases/0.1.1")).unwrap();
+        std::fs::create_dir_all(dir.path().join("app/releases/0.1.2")).unwrap();
+
+        let update_dir = dir.path().join("updates/0.3.1");
+        std::fs::create_dir_all(&update_dir).unwrap();
+        let good_tgz = update_dir.join("lighterm-web-0.3.1-linux-amd64.tar.gz");
+        let payload = build_tar_gz(&[
+            ("lighterm-server", b"#!/bin/sh\necho lighterm-server 0.3.1\n"),
+            ("dist/index.html", b"<!doctype html><html></html>"),
+            ("VERSION", b"0.3.1\n"),
+        ]);
+        std::fs::write(&good_tgz, payload).unwrap();
+
+        let staged = manager
+            .stage_web_bundle_update_inner(&good_tgz.to_string_lossy(), false)
+            .expect("stage valid bundle");
+        assert_eq!(staged.version, "0.3.1");
+        assert!(Path::new(&staged.binary_path).is_file());
+        assert!(Path::new(&staged.static_dir).join("index.html").is_file());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("app/active-version"))
+                .unwrap()
+                .trim(),
+            "0.3.1"
+        );
+        assert!(!good_tgz.exists());
+
+        let remaining_releases: Vec<_> = std::fs::read_dir(dir.path().join("app/releases"))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert_eq!(remaining_releases.len(), 2);
+
+        // Missing dist/index.html is rejected
+        let missing_dist = update_dir.join("missing-dist.tar.gz");
+        std::fs::write(
+            &missing_dist,
+            build_tar_gz(&[("lighterm-server", b"bin"), ("VERSION", b"0.3.2")]),
+        )
+        .unwrap();
+        let err = manager
+            .stage_web_bundle_update_inner(&missing_dist.to_string_lossy(), false)
+            .expect_err("missing dist should fail");
+        assert!(err.to_string().contains("dist/index.html"));
+
+        // Path traversal is rejected (construct raw header path directly)
+        let traversal_tgz = update_dir.join("traversal.tar.gz");
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        {
+            let mut builder = tar::Builder::new(&mut gz);
+            let data = b"evil";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            // Set path bypassing Builder's own relative-path guard by writing raw name bytes
+            let name_bytes = b"../evil.txt";
+            let raw_header = header.as_mut_bytes();
+            raw_header[..name_bytes.len()].copy_from_slice(name_bytes);
+            header.set_cksum();
+            builder.append(&header, std::io::Cursor::new(data)).unwrap();
+            builder.finish().unwrap();
+        }
+        std::fs::write(&traversal_tgz, gz.finish().unwrap()).unwrap();
+        let err2 = manager
+            .stage_web_bundle_update_inner(&traversal_tgz.to_string_lossy(), false)
+            .expect_err("traversal should fail");
+        assert!(err2.to_string().contains("traversal"));
     }
 
     #[test]

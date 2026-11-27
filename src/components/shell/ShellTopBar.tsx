@@ -50,7 +50,8 @@ export const ShellTopBar: React.FC = () => {
       (!updateResult.isSkipped ||
         updateDownloadStatus === 'downloading' ||
         updateDownloadStatus === 'verifying' ||
-        updateDownloadStatus === 'ready'),
+        updateDownloadStatus === 'ready' ||
+        updateDownloadStatus === 'restarting'),
   );
 
   const [quickInput, setQuickInput] = useState('');

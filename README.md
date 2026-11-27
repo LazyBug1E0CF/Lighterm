@@ -105,6 +105,7 @@ Open `http://localhost:8080` in your browser.
 | `LIGHTERM_SESSION_TTL_SECS` | `86400` | Web auth session lifetime in seconds. |
 | `LIGHTERM_COOKIE_SECURE` | `auto` | `auto` (sets `Secure` when `X-Forwarded-Proto: https`), `always`, or `never`. |
 | `PUID` / `PGID` | `1000` / `1000` | Target UID/GID used inside the container. On startup, the entrypoint automatically aligns `/data` ownership for NAS bind mounts before dropping privileges via `gosu`. |
+| `LIGHTERM_SELF_UPDATE` | `1` (Docker) / `0` (direct) | Enables in-container one-click self-updates from GitHub Releases without pulling a new Docker image. Staged updates are extracted to `/data/app/releases/<ver>`, activated via `/data/app/current`, and launched automatically whenever newer than the built-in image version (with automatic rollback if startup fails within 10s). |
 | `LIGHTERM_GITHUB_CLIENT_ID` | _(built-in)_ | Optional GitHub OAuth App Client ID override for `lighterm.sync`. |
 | `RUST_LOG` | `info` | Server logging filter (`tracing_subscriber`). |
 

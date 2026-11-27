@@ -9,6 +9,7 @@ description = "Minimal shell connection, session, storage, and plugin kernel for
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6"
+flate2 = "1.1"
 parking_lot = "0.12"
 portable-pty = "0.9"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "http2", "charset", "system-proxy"] }
@@ -18,6 +19,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tar = "0.4"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net"] }
 tracing = "0.1"

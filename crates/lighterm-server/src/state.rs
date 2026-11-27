@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use lighterm_core::error::CoreResult;
 use lighterm_core::events::CoreEventSink;
@@ -7,7 +9,7 @@ use lighterm_core::models::{SessionKind, SessionStatus};
 use lighterm_core::LightermCore;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Notify};
 
 use crate::auth::{AuthConfig, AuthManager};
 
@@ -111,6 +113,7 @@ pub struct ServerConfig {
     pub data_dir: PathBuf,
     pub static_dir: PathBuf,
     pub auth: AuthConfig,
+    pub self_update_enabled: bool,
 }
 
 pub struct ServerState {
@@ -119,7 +122,10 @@ pub struct ServerState {
     pub event_sink: Arc<dyn CoreEventSink>,
     pub auth: Arc<AuthManager>,
     pub static_dir: PathBuf,
+    pub self_update_enabled: bool,
     pub web_settings: RwLock<WebAppSettings>,
+    restart_requested: Arc<AtomicBool>,
+    restart_notify: Arc<Notify>,
 }
 
 impl ServerState {
@@ -137,7 +143,40 @@ impl ServerState {
             event_sink,
             auth,
             static_dir: config.static_dir.clone(),
+            self_update_enabled: config.self_update_enabled,
             web_settings: RwLock::new(initial_web_settings),
+            restart_requested: Arc::new(AtomicBool::new(false)),
+            restart_notify: Arc::new(Notify::new()),
+        }
+    }
+
+    pub fn is_self_update_enabled(&self) -> bool {
+        self.self_update_enabled
+    }
+
+    pub fn is_restart_requested(&self) -> bool {
+        self.restart_requested.load(Ordering::SeqCst)
+    }
+
+    pub fn request_restart(&self) {
+        self.restart_requested.store(true, Ordering::SeqCst);
+        self.restart_notify.notify_waiters();
+    }
+
+    pub fn schedule_restart(self: &Arc<Self>, delay: Duration) {
+        let state = Arc::clone(self);
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            state.request_restart();
+        });
+    }
+
+    pub async fn wait_for_restart(&self) {
+        loop {
+            if self.is_restart_requested() {
+                return;
+            }
+            self.restart_notify.notified().await;
         }
     }
 

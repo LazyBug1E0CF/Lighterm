@@ -10,14 +10,18 @@ import {
   hasBackendRuntime,
   invokeBackend,
   isTauriRuntime,
+  isWebRuntime,
   listenBackend,
   makeUuid,
   readLs,
   writeLs,
 } from './ipc';
+import { resolveApiUrl } from './webTransport';
 
 export const STARTUP_UPDATE_CHECK_DELAY_MS = 5_000;
 export const PERIODIC_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const WEB_RESTART_POLL_INTERVAL_MS = 1_000;
+export const WEB_RESTART_TIMEOUT_MS = 60_000;
 
 const LS_UPDATE_PREFS = 'lighterm:update-prefs';
 
@@ -62,6 +66,8 @@ let inFlightCheckPromise: Promise<UpdateCheckResult | null> | null = null;
 let unlistenProgress: (() => void) | null = null;
 let startupTimer: ReturnType<typeof setTimeout> | null = null;
 let periodicTimer: ReturnType<typeof setInterval> | null = null;
+let restartPollTimer: ReturnType<typeof setTimeout> | null = null;
+let restartSessionToken = 0;
 const cancelledDownloadIds = new Set<string>();
 
 function formatErrorMessage(err: unknown): string {
@@ -127,6 +133,10 @@ function clearTimers(): void {
   if (periodicTimer !== null) {
     clearInterval(periodicTimer);
     periodicTimer = null;
+  }
+  if (restartPollTimer !== null) {
+    clearTimeout(restartPollTimer);
+    restartPollTimer = null;
   }
 }
 
@@ -352,7 +362,7 @@ export class UpdateService {
     const result = state.result;
     if (!result || !result.hasUpdate) return;
 
-    if (!isTauriRuntime() || !result.canAutoDownload || !result.asset) {
+    if (!hasBackendRuntime() || !result.canAutoDownload || !result.asset) {
       await this.openReleasePage(result.releaseUrl);
       return;
     }
@@ -428,11 +438,90 @@ export class UpdateService {
     }
   }
 
+  reloadBrowserPage(): void {
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.reload();
+    }
+  }
+
+  private waitForWebServerRestart(expectedVersion: string, previousVersion: string | null): void {
+    restartSessionToken += 1;
+    const token = restartSessionToken;
+    if (restartPollTimer !== null) {
+      clearTimeout(restartPollTimer);
+      restartPollTimer = null;
+    }
+
+    const deadline = Date.now() + WEB_RESTART_TIMEOUT_MS;
+    let sawDisconnect = false;
+
+    const scheduleNext = () => {
+      if (token !== restartSessionToken) return;
+      restartPollTimer = setTimeout(() => {
+        restartPollTimer = null;
+        void poll();
+      }, WEB_RESTART_POLL_INTERVAL_MS);
+    };
+
+    const poll = async () => {
+      if (token !== restartSessionToken) return;
+      if (useUpdateStore.getState().downloadStatus !== 'restarting') return;
+
+      if (Date.now() > deadline) {
+        useUpdateStore.setState({
+          downloadStatus: 'error',
+          downloadError: 'Server restart timed out. Please refresh the page to reconnect.',
+        });
+        return;
+      }
+
+      try {
+        const res = await fetch(resolveApiUrl('api/health'), {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'same-origin',
+        });
+        if (!res.ok) {
+          sawDisconnect = true;
+        } else {
+          const data = (await res.json().catch(() => null)) as {
+            status?: string;
+            version?: string;
+          } | null;
+          if (data?.status === 'ok') {
+            const versionMatches = data.version === expectedVersion;
+            const switchedVersion = Boolean(
+              sawDisconnect && data.version && data.version !== previousVersion,
+            );
+            if (versionMatches || switchedVersion) {
+              this.reloadBrowserPage();
+              return;
+            }
+          }
+        }
+      } catch {
+        sawDisconnect = true;
+      }
+
+      scheduleNext();
+    };
+
+    scheduleNext();
+  }
+
   async installDownloadedUpdate(): Promise<void> {
     const downloaded = useUpdateStore.getState().downloaded;
     if (!downloaded) return;
+    const previousVersion = useUpdateStore.getState().result?.currentVersion ?? null;
     try {
       await invokeBackend<void>('updater_install', { filePath: downloaded.filePath });
+      if (isWebRuntime()) {
+        useUpdateStore.setState({
+          downloadStatus: 'restarting',
+          downloadError: null,
+        });
+        this.waitForWebServerRestart(downloaded.version, previousVersion);
+      }
     } catch (err) {
       useUpdateStore.setState({
         downloadStatus: 'error',
@@ -456,6 +545,7 @@ export class UpdateService {
   }
 
   resetForTesting(): void {
+    restartSessionToken += 1;
     clearTimers();
     unlistenProgress?.();
     unlistenProgress = null;

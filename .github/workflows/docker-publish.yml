@@ -17,7 +17,7 @@ on:
         type: boolean
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -44,13 +44,24 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
             echo "::error::Missing required repository secrets DOCKERHUB_USERNAME and/or DOCKERHUB_TOKEN."
             exit 1
           fi
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ -n "${INPUT_VERSION}" ]; then
+              VERSION="${INPUT_VERSION#v}"
+            else
+              VERSION="$(node -p "require('./package.json').version")"
+            fi
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
           GHCR_IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           DOCKERHUB_IMAGE="${DOCKERHUB_USERNAME,,}/lighterm"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "ghcr_image=${GHCR_IMAGE}" >> "$GITHUB_OUTPUT"
           echo "dockerhub_image=${DOCKERHUB_IMAGE}" >> "$GITHUB_OUTPUT"
 
@@ -101,6 +112,36 @@ jobs:
           path: /tmp/digests/*
           retention-days: 1
 
+      - name: Export web self-update bundle
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: web-bundle
+          platforms: ${{ matrix.platform }}
+          outputs: type=local,dest=/tmp/web-bundle-${{ matrix.arch }}
+          cache-from: type=gha,scope=lighterm-web-${{ matrix.arch }}
+
+      - name: Package web self-update tarball & SHA-256
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          BUNDLE_DIR="/tmp/web-bundle-${ARCH}"
+          OUT_DIR="/tmp/web-artifacts-${ARCH}"
+          mkdir -p "${OUT_DIR}"
+          chmod 0755 "${BUNDLE_DIR}/lighterm-server"
+          echo -n "${VERSION}" > "${BUNDLE_DIR}/VERSION"
+          ARCHIVE="lighterm-web-${VERSION}-linux-${ARCH}.tar.gz"
+          tar -czf "${OUT_DIR}/${ARCHIVE}" -C "${BUNDLE_DIR}" lighterm-server dist VERSION
+          (cd "${OUT_DIR}" && sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256")
+
+      - name: Upload web self-update bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-bundle-${{ matrix.arch }}
+          path: /tmp/web-artifacts-${{ matrix.arch }}/*
+          retention-days: 1
+
   merge:
     name: Create multi-arch manifests (GHCR & Docker Hub)
     needs: [build]
@@ -115,6 +156,13 @@ jobs:
         with:
           path: /tmp/digests
           pattern: digests-*
+          merge-multiple: true
+
+      - name: Download web self-update bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/web-bundles
+          pattern: web-bundle-*
           merge-multiple: true
 
       - name: Resolve version tags & image names
@@ -193,3 +241,14 @@ jobs:
             "${DOCKERHUB_IMAGE}@${{ steps.meta.outputs.amd64_digest }}" \
             "${DOCKERHUB_IMAGE}@${{ steps.meta.outputs.arm64_digest }}"
           docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${VERSION}"
+
+      - name: Upload web self-update bundles to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.meta.outputs.version }}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" /tmp/web-bundles/*.tar.gz /tmp/web-bundles/*.sha256 --clobber
+          else
+            echo "::notice::GitHub Release ${TAG} does not exist yet; skipping self-update bundle upload."
+          fi

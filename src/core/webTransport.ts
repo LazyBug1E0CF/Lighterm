@@ -11,6 +11,7 @@ export interface WebRuntimeConfig {
   usernameRequired: boolean;
   authenticated: boolean;
   localShellEnabled: boolean;
+  selfUpdateEnabled?: boolean;
 }
 
 export type WsConnectionStatus = 'connected' | 'connecting' | 'disconnected';

@@ -8,7 +8,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
-import { isTauriRuntime } from '../../core/ipc';
+import { hasBackendRuntime, isWebRuntime } from '../../core/ipc';
 import { updateService, useUpdateStore } from '../../core/updateService';
 
 function formatBytes(bytes: number): string {
@@ -146,22 +146,28 @@ export const UpdateModal: React.FC = () => {
     setExpandedTags(defaults);
   }, [open, result?.latestTag]);
 
+  const isRestarting = downloadStatus === 'restarting';
+  const isBusy =
+    downloadStatus === 'downloading' || downloadStatus === 'verifying' || isRestarting;
+  const webMode = isWebRuntime();
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        updateService.closeModal();
+        if (!isRestarting) {
+          updateService.closeModal();
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open]);
+  }, [open, isRestarting]);
 
   if (!open || !result || !result.hasUpdate) return null;
 
-  const isBusy = downloadStatus === 'downloading' || downloadStatus === 'verifying';
-  const canDownloadInApp = Boolean(isTauriRuntime() && result.canAutoDownload && result.asset);
+  const canDownloadInApp = Boolean(hasBackendRuntime() && result.canAutoDownload && result.asset);
   const releaseCount = result.releases.length;
   const pct = Math.max(0, Math.min(100, progress?.progressPercent ?? 0));
   const totalBytes = progress?.totalBytes || result.asset?.size || 0;
@@ -178,7 +184,9 @@ export const UpdateModal: React.FC = () => {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
-      onClick={() => updateService.closeModal()}
+      onClick={() => {
+        if (!isRestarting) updateService.closeModal();
+      }}
     >
       <div
         role="dialog"
@@ -207,9 +215,10 @@ export const UpdateModal: React.FC = () => {
 
           <button
             type="button"
+            disabled={isRestarting}
             onClick={() => updateService.closeModal()}
             aria-label="Close Update Dialog"
-            className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+            className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-40"
           >
             <X className="w-4 h-4" />
           </button>
@@ -318,10 +327,10 @@ export const UpdateModal: React.FC = () => {
           </div>
         </div>
 
-        {/* Conditional Progress / Ready / Error Strip */}
+        {/* Conditional Progress / Ready / Restarting / Error Strip */}
         {(isBusy || downloadStatus === 'ready' || downloadStatus === 'error') && (
           <div className="px-4 py-2.5 border-t border-[var(--border-subtle)] bg-[var(--bg-app)]/60 text-xs shrink-0">
-            {isBusy && (
+            {(downloadStatus === 'downloading' || downloadStatus === 'verifying') && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 text-[11px]">
                   <div className="flex items-center gap-2 font-medium">
@@ -345,7 +354,9 @@ export const UpdateModal: React.FC = () => {
                       2. Verify SHA-256
                     </span>
                     <span className="text-[var(--text-muted)]">&rarr;</span>
-                    <span className="text-[var(--text-muted)]">3. Launch Installer</span>
+                    <span className="text-[var(--text-muted)]">
+                      {webMode ? '3. Apply & Restart' : '3. Launch Installer'}
+                    </span>
                   </div>
                   <span className="font-mono text-[var(--text-primary)]">
                     {downloadStatus === 'verifying'
@@ -371,13 +382,39 @@ export const UpdateModal: React.FC = () => {
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>
                   {downloaded?.sha256Verified
-                    ? `SHA-256 checksum verified. Ready to launch ${
-                        downloaded.assetName
-                      }.`
-                    : `Download complete. Ready to launch ${
-                        downloaded?.assetName ?? result.asset?.name ?? 'installer'
-                      }.`}
+                    ? webMode
+                      ? `SHA-256 checksum verified. Ready to apply ${downloaded.assetName} and restart server.`
+                      : `SHA-256 checksum verified. Ready to launch ${downloaded.assetName}.`
+                    : webMode
+                      ? `Download complete. Ready to apply ${
+                          downloaded?.assetName ?? result.asset?.name ?? 'update'
+                        } and restart server.`
+                      : `Download complete. Ready to launch ${
+                          downloaded?.assetName ?? result.asset?.name ?? 'installer'
+                        }.`}
                 </span>
+              </div>
+            )}
+
+            {isRestarting && (
+              <div
+                role="status"
+                className="px-3 py-2 rounded-md border border-[var(--accent)]/45 bg-[var(--accent)]/12 text-[var(--accent)] flex items-center justify-between gap-2 text-[11px]"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <span>
+                    Applying update and restarting server... Waiting for v{result.latestVersion} to
+                    come back online. This page will reload automatically.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateService.reloadBrowserPage()}
+                  className="px-2 py-1 rounded border border-[var(--accent)]/40 bg-[var(--bg-surface)] text-[var(--text-primary)] text-[10px] font-medium shrink-0"
+                >
+                  Reload Now
+                </button>
               </div>
             )}
 
@@ -390,14 +427,25 @@ export const UpdateModal: React.FC = () => {
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span className="truncate">{downloadError ?? 'Update download failed.'}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void updateService.openReleasePage(result.releaseUrl)}
-                  className="px-2 py-1 rounded border border-[var(--danger)]/40 bg-[var(--bg-surface)] text-[var(--text-primary)] text-[10px] font-medium shrink-0 flex items-center gap-1"
-                >
-                  <span>Open Release Page</span>
-                  <ExternalLink className="w-2.5 h-2.5" />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {webMode && downloaded && (
+                    <button
+                      type="button"
+                      onClick={() => updateService.reloadBrowserPage()}
+                      className="px-2 py-1 rounded border border-[var(--danger)]/40 bg-[var(--bg-surface)] text-[var(--text-primary)] text-[10px] font-medium"
+                    >
+                      Reload Page
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void updateService.openReleasePage(result.releaseUrl)}
+                    className="px-2 py-1 rounded border border-[var(--danger)]/40 bg-[var(--bg-surface)] text-[var(--text-primary)] text-[10px] font-medium flex items-center gap-1"
+                  >
+                    <span>Open Release Page</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -417,16 +465,19 @@ export const UpdateModal: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              disabled={isRestarting}
               onClick={() => {
-                if (isBusy) {
+                if (downloadStatus === 'downloading' || downloadStatus === 'verifying') {
                   void updateService.cancelDownload();
-                } else {
+                } else if (!isRestarting) {
                   updateService.closeModal();
                 }
               }}
-              className="h-8 px-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors"
+              className="h-8 px-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--accent)] disabled:opacity-40 transition-colors"
             >
-              {isBusy ? 'Cancel Download' : 'Cancel'}
+              {downloadStatus === 'downloading' || downloadStatus === 'verifying'
+                ? 'Cancel Download'
+                : 'Cancel'}
             </button>
 
             {downloadStatus === 'ready' ? (
@@ -444,7 +495,13 @@ export const UpdateModal: React.FC = () => {
                 className="h-8 px-3.5 rounded-md font-medium bg-[var(--accent)] text-[#0f111a] opacity-60 flex items-center gap-1.5"
               >
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>{downloadStatus === 'verifying' ? 'Verifying...' : 'Downloading...'}</span>
+                <span>
+                  {isRestarting
+                    ? 'Restarting...'
+                    : downloadStatus === 'verifying'
+                      ? 'Verifying...'
+                      : 'Downloading...'}
+                </span>
               </button>
             ) : canDownloadInApp ? (
               <button

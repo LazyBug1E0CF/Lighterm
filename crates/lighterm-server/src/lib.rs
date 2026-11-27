@@ -39,17 +39,25 @@ pub fn init_core(data_dir: PathBuf) -> CoreResult<Arc<LightermCore>> {
     Ok(core)
 }
 
+pub fn current_server_version() -> String {
+    std::env::var("LIGHTERM_APP_VERSION")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HealthResponse {
     status: &'static str,
-    version: &'static str,
+    version: String,
 }
 
 async fn health_handler() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
-        version: env!("CARGO_PKG_VERSION"),
+        version: current_server_version(),
     })
 }
 
@@ -57,21 +65,23 @@ async fn health_handler() -> Json<HealthResponse> {
 #[serde(rename_all = "camelCase")]
 struct WebBootstrapPayload {
     mode: &'static str,
-    version: &'static str,
+    version: String,
     auth_required: bool,
     username_required: bool,
     authenticated: bool,
     local_shell_enabled: bool,
+    self_update_enabled: bool,
 }
 
 pub fn inject_web_bootstrap(html: &str, state: &ServerState, headers: &HeaderMap) -> String {
     let payload = WebBootstrapPayload {
         mode: "web",
-        version: env!("CARGO_PKG_VERSION"),
+        version: current_server_version(),
         auth_required: state.auth.is_enabled(),
         username_required: state.auth.username_required(),
         authenticated: state.auth.is_authenticated(headers),
         local_shell_enabled: state.is_local_shell_enabled(),
+        self_update_enabled: state.is_self_update_enabled(),
     };
 
     let json = serde_json::to_string(&payload)

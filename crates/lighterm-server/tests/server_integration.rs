@@ -12,6 +12,15 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 fn setup_app(password: Option<&str>, username: Option<&str>) -> (tempfile::TempDir, axum::Router) {
+    let (tmp, _state, app) = setup_app_with_options(password, username, false);
+    (tmp, app)
+}
+
+fn setup_app_with_options(
+    password: Option<&str>,
+    username: Option<&str>,
+    self_update_enabled: bool,
+) -> (tempfile::TempDir, Arc<ServerState>, axum::Router) {
     let temp = tempfile::tempdir().expect("tempdir");
     let data_dir = temp.path().join("data");
     let static_dir = temp.path().join("dist");
@@ -33,9 +42,11 @@ fn setup_app(password: Option<&str>, username: Option<&str>) -> (tempfile::TempD
             session_ttl: Duration::from_secs(3600),
             cookie_secure: CookieSecureMode::Never,
         },
+        self_update_enabled,
     };
     let state = Arc::new(ServerState::new(core, &cfg));
-    (temp, build_router(state))
+    let app = build_router(Arc::clone(&state));
+    (temp, state, app)
 }
 
 async fn response_json(resp: axum::response::Response) -> Value {
@@ -309,6 +320,7 @@ async fn web_settings_default_disables_local_shell_persists_and_toggles_live() {
             data_dir,
             static_dir,
             auth: AuthConfig::default(),
+            self_update_enabled: false,
         },
     ));
     let app2 = build_router(state2);
@@ -490,4 +502,103 @@ async fn rpc_crud_works() {
         .await
         .unwrap();
     assert_eq!(sftp_err.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn web_self_update_rpc_gates_disabled_and_stages_restart() {
+    // When self_update_enabled is false, bootstrap reports false and install RPC rejects.
+    let (_tmp_off, app_off) = setup_app(None, None);
+    let idx_off = app_off
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let html_off = String::from_utf8(
+        axum::body::to_bytes(idx_off.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html_off.contains("\"selfUpdateEnabled\":false"));
+
+    let rejected = app_off
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/rpc/updater_install")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({ "filePath": "/tmp/x.tar.gz" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+
+    // When self_update_enabled is true, bootstrap reports true and updater_install stages + triggers restart.
+    let (tmp_on, state_on, app_on) = setup_app_with_options(None, None, true);
+    let idx_on = app_on
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let html_on = String::from_utf8(
+        axum::body::to_bytes(idx_on.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html_on.contains("\"selfUpdateEnabled\":true"));
+
+    let updates_dir = tmp_on.path().join("data/updates/0.9.0");
+    fs::create_dir_all(&updates_dir).unwrap();
+    let bundle_path = updates_dir.join("lighterm-web-0.9.0-linux-amd64.tar.gz");
+    {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        {
+            let mut builder = tar::Builder::new(&mut gz);
+            for (name, bytes) in [
+                ("lighterm-server", b"#!/bin/sh\necho lighterm-server 0.9.0\n".as_slice()),
+                ("dist/index.html", b"<!doctype html><html><head></head></html>".as_slice()),
+                ("VERSION", b"0.9.0\n".as_slice()),
+            ] {
+                let mut hdr = tar::Header::new_gnu();
+                hdr.set_size(bytes.len() as u64);
+                hdr.set_mode(0o644);
+                hdr.set_cksum();
+                builder
+                    .append_data(&mut hdr, name, std::io::Cursor::new(bytes))
+                    .unwrap();
+            }
+            builder.finish().unwrap();
+        }
+        fs::write(&bundle_path, gz.finish().unwrap()).unwrap();
+    }
+
+    let install_resp = app_on
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/rpc/updater_install")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "filePath": bundle_path.to_string_lossy() }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(install_resp.status(), StatusCode::OK);
+    let staged = response_json(install_resp).await;
+    assert_eq!(staged["version"], "0.9.0");
+    assert_eq!(
+        fs::read_to_string(tmp_on.path().join("data/app/active-version"))
+            .unwrap()
+            .trim(),
+        "0.9.0"
+    );
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(state_on.is_restart_requested());
 }

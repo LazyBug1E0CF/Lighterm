@@ -10,7 +10,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY index.html tsconfig.json tsconfig.node.json vite.config.ts ./
 COPY src ./src
-RUN pnpm run build
+RUN pnpm run build \
+  && node -p "require('./package.json').version" > /app/VERSION
 
 # ---- Stage 2: Build Rust Web Backend ----
 FROM rust:1-bookworm AS backend-builder
@@ -22,6 +23,12 @@ COPY crates ./crates
 COPY src-tauri ./src-tauri
 
 RUN cargo build --release --locked -p lighterm-server
+
+# ---- Stage 2.5: Exportable Web Self-Update Bundle ----
+FROM scratch AS web-bundle
+COPY --from=backend-builder /app/target/release/lighterm-server /lighterm-server
+COPY --from=frontend-builder /app/dist /dist
+COPY --from=frontend-builder /app/VERSION /VERSION
 
 # ---- Stage 3: Minimal Runtime Image ----
 FROM debian:bookworm-slim AS runtime
@@ -48,6 +55,7 @@ WORKDIR /app
 
 COPY --from=backend-builder /app/target/release/lighterm-server /app/lighterm-server
 COPY --from=frontend-builder /app/dist /app/dist
+COPY --from=frontend-builder /app/VERSION /app/VERSION
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod 0755 /app/entrypoint.sh
 

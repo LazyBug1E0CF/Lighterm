@@ -298,7 +298,13 @@ export interface DownloadedUpdate {
   sha256Verified: boolean;
 }
 
-export type UpdateDownloadStatus = 'idle' | 'downloading' | 'verifying' | 'ready' | 'error';
+export type UpdateDownloadStatus =
+  | 'idle'
+  | 'downloading'
+  | 'verifying'
+  | 'ready'
+  | 'restarting'
+  | 'error';
 
 export interface LocalShellProfile {
   id: string;

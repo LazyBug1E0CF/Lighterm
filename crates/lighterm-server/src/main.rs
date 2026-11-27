@@ -64,6 +64,11 @@ fn load_config_from_env() -> ServerConfig {
         std::env::var("LIGHTERM_COOKIE_SECURE").ok().as_deref(),
     );
 
+    let self_update_enabled = std::env::var("LIGHTERM_SELF_UPDATE")
+        .ok()
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
     ServerConfig {
         bind,
         data_dir,
@@ -74,6 +79,7 @@ fn load_config_from_env() -> ServerConfig {
             session_ttl: Duration::from_secs(ttl_secs),
             cookie_secure,
         },
+        self_update_enabled,
     }
 }
 
@@ -104,6 +110,11 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("lighterm-server {}", lighterm_server::current_server_version());
+        return;
+    }
+
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
@@ -119,11 +130,13 @@ async fn main() {
     }
 
     tracing::info!(
+        version = %lighterm_server::current_server_version(),
         bind = %config.bind,
         data_dir = %config.data_dir.display(),
         static_dir = %config.static_dir.display(),
         auth_enabled = state.auth.is_enabled(),
         allow_local_shell = state.is_local_shell_enabled(),
+        self_update_enabled = state.is_self_update_enabled(),
         "Starting Lighterm web server"
     );
 
@@ -131,9 +144,15 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("Failed to bind '{}': {e}", config.bind));
 
-    let app = build_router(state);
+    let shutdown_state = Arc::clone(&state);
+    let app = build_router(Arc::clone(&state));
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            tokio::select! {
+                _ = shutdown_signal() => {}
+                _ = shutdown_state.wait_for_restart() => {}
+            }
+        })
         .await
         .expect("Lighterm web server error");
 
@@ -141,4 +160,12 @@ async fn main() {
         let _ = core.sessions.close(&session.id);
     }
     tracing::info!("Lighterm web server stopped cleanly");
+
+    if state.is_restart_requested() {
+        tracing::info!(
+            exit_code = lighterm_core::updater::SELF_UPDATE_RESTART_EXIT_CODE,
+            "Restarting Lighterm web server to activate staged update"
+        );
+        std::process::exit(lighterm_core::updater::SELF_UPDATE_RESTART_EXIT_CODE);
+    }
 }
