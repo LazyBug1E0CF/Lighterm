@@ -63,23 +63,32 @@ Lighterm also ships a standalone Rust web backend (`crates/lighterm-server`) ser
 
 ### Quick Start with Docker
 
-```bash
-# Build image
-docker build -t lighterm-web:latest .
+Pre-built multi-arch images (`linux/amd64`, `linux/arm64`) are published to both **GHCR** and **Docker Hub** on every release:
 
-# Run container (persistent data in named volume, protected by password)
+- **GHCR**: `ghcr.io/lazybug1e0cf/lighterm:latest`
+- **Docker Hub**: `lmmmd/lighterm:latest`
+
+```bash
+# Run container using pre-built image (persistent data in named volume, protected by password)
 docker run -d \
   --name lighterm-web \
   -p 8080:8080 \
   -e LIGHTERM_AUTH_PASSWORD="your-strong-password" \
   -v lighterm-data:/data \
-  lighterm-web:latest
+  ghcr.io/lazybug1e0cf/lighterm:latest
+# Or from Docker Hub: lmmmd/lighterm:latest
 ```
 
-Or using Docker Compose:
+Or using Docker Compose (pulls pre-built image by default, or add `--build` to build locally):
 
 ```bash
 LIGHTERM_AUTH_PASSWORD="your-strong-password" docker compose up -d
+```
+
+To build from source directly:
+
+```bash
+docker build -t lighterm-web:latest .
 ```
 
 Open `http://localhost:8080` in your browser.

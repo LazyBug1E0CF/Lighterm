@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lighterm-web:latest
+    image: ghcr.io/lazybug1e0cf/lighterm:latest
     container_name: lighterm-web
     restart: unless-stopped
     ports:

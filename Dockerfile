@@ -26,6 +26,11 @@ RUN cargo build --release --locked -p lighterm-server
 # ---- Stage 3: Minimal Runtime Image ----
 FROM debian:bookworm-slim AS runtime
 
+LABEL org.opencontainers.image.title="Lighterm Web" \
+      org.opencontainers.image.description="Lighterm self-hosted Web App (SSH/SFTP/Terminal workbench)" \
+      org.opencontainers.image.source="https://github.com/LazyBug1E0CF/Lighterm" \
+      org.opencontainers.image.licenses="MIT"
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
